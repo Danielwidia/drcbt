@@ -12,6 +12,27 @@ cbt_data.db*
 *.log
 .DS_Store
 Thumbs.db
+
+# Exclude backups, binaries, DB data and secrets
+BACKUP/
+Backup1/
+mysql/
+mysql/data/
+mysql/data_corrupt_backup/
+dist.rar
+*.rar
+*.zip
+*.pem
+*.key
+*.pfx
+*.sql
+*.dump
+# specific large DB files
+cbt_questions.db*
+cbt_results.db*
+cbt_users.db*
+cbt_data_rescued.jsonbackup
+
 node_modules/
 dist/
 build/
