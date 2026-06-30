@@ -4150,3 +4150,6 @@ process.on('SIGTERM', handleExit);
 
 process.on('SIGINT', handleExit);
 process.on('SIGTERM', handleExit);
+
+// Export Express app so Vercel finds the handler in serverless environment
+module.exports = app;
