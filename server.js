@@ -1303,7 +1303,8 @@ app.get('/api/results', async (req, res) => {
             limit: parseInt(req.query.limit) || 100,
             offset: parseInt(req.query.offset) || 0
         };
-        const results = await withRetry(() => readResults(options), 'GET /api/results');
+        // 'withRetry' helper not available in this build; call readResults directly
+        const results = await readResults(options);
 
         // Return with metadata if granular
         if (req.query.limit || req.query.offset || req.query.studentId) {
