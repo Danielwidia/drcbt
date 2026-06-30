@@ -4152,4 +4152,9 @@ process.on('SIGINT', handleExit);
 process.on('SIGTERM', handleExit);
 
 // Export Express app so Vercel finds the handler in serverless environment
+// CommonJS default export
 module.exports = app;
+// Also provide named/ESM-friendly exports some builders expect
+module.exports.default = app;
+module.exports.handler = app;
+exports.default = app;
