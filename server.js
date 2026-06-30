@@ -1345,7 +1345,7 @@ app.post('/api/generate-admin-doc', generateAdminDocMiddleware, async (req, res)
                 ${blueprintSection}
                 <div style="margin-top:24px;padding:18px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;">
                     <h3 style="margin-top:0;color:#3730a3;">Catatan</h3>
-                    <p style="margin:0;color:#334155;">Endpoint `/api/generate-admin-doc` sudah aktif di server. Jika Anda ingin hasil dokumen AI asli, langkah selanjutnya adalah menghubungkan layanan AI dan membuat prompt generator di server.</p>
+                    <p style="margin:0;color:#334155;">Endpoint '/api/generate-admin-doc' sudah aktif di server. Jika Anda ingin hasil dokumen AI asli, langkah selanjutnya adalah menghubungkan layanan AI dan membuat prompt generator di server.</p>
                 </div>
             </div>
         `;
