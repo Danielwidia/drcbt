@@ -299,6 +299,24 @@ async function mergeResults(inc = []) {
 }
 
 // ─── Live Exams ───────────────────────────────────────────────────────────────
+function normalizeTimestamp(value) {
+    if (!value && value !== 0) return new Date().toISOString();
+    if (typeof value === 'number') {
+        return new Date(value).toISOString();
+    }
+    const trimmed = String(value).trim();
+    if (/^\d+$/.test(trimmed)) {
+        let ms = Number(trimmed);
+        if (trimmed.length === 10) ms *= 1000;
+        return new Date(ms).toISOString();
+    }
+    const parsed = Date.parse(trimmed);
+    if (!Number.isNaN(parsed)) {
+        return new Date(parsed).toISOString();
+    }
+    return new Date().toISOString();
+}
+
 async function getAllLiveExams() {
     const sb = getSupabase();
     const { data, error } = await sb.from('cbt_live_exams').select('data');
@@ -317,7 +335,7 @@ async function upsertLiveExam(exam) {
         student_id: exam.studentId || '',
         mapel: exam.mapel || '',
         rombel: exam.rombel || '',
-        updated_at: exam.updatedAt || new Date().toISOString(),
+        updated_at: normalizeTimestamp(exam.updatedAt),
         data: enc(exam)
     };
     if (existing) {
@@ -357,7 +375,7 @@ async function setAllLiveExams(exams) {
         student_id: e.studentId || '',
         mapel: e.mapel || '',
         rombel: e.rombel || '',
-        updated_at: e.updatedAt || new Date().toISOString(),
+        updated_at: normalizeTimestamp(e.updatedAt),
         data: enc(e)
     }));
     const { error } = await sb.from('cbt_live_exams').insert(rows);

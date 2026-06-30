@@ -865,8 +865,23 @@ function mergeLiveExamData(existing, incoming) {
 }
 
 async function insertLiveExamSingle(exam) {
-    console.log('[insertLiveExamSingle] Received exam:', { studentId: exam.studentId, mapel: exam.mapel, rombel: exam.rombel });
+    console.log('[insertLiveExamSingle] Received exam:', { studentId: exam.studentId, mapel: exam.mapel, rombel: exam.rombel, updatedAt: exam.updatedAt, type: typeof exam.updatedAt });
     try {
+        const normalizeExamDate = value => {
+            if (value === undefined || value === null || value === '') return new Date().toISOString();
+            if (typeof value === 'number') return new Date(value).toISOString();
+            const trimmed = String(value).trim();
+            if (/^\d+$/.test(trimmed)) {
+                let ms = Number(trimmed);
+                if (trimmed.length === 10) ms *= 1000;
+                return new Date(ms).toISOString();
+            }
+            const parsed = Date.parse(trimmed);
+            return Number.isNaN(parsed) ? new Date().toISOString() : new Date(parsed).toISOString();
+        };
+
+        exam.updatedAt = normalizeExamDate(exam.updatedAt);
+
         const norm = v => String(v || '').trim().toLowerCase();
         const nid = norm(exam.studentId);
         const nrb = norm(exam.rombel);
