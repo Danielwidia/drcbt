@@ -5,7 +5,7 @@
   ],
   "functions": {
     "server.js": {
-      "includeFiles": "{*.html,*.png,app.js,style.css,wordParser.js,*.ico}",
+      "includeFiles": "{*.html,*.png,app.js,style.css,wordParser.js,db.js,*.ico}",
       "maxDuration": 300
     }
   }
