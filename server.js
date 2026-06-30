@@ -10,7 +10,7 @@ const { parseWordDocument } = require('./wordParser');
 const mammoth = require('mammoth');
 const xlsx = require('xlsx');
 const pdf = require('pdf-parse');
-// Database: Supabase (cloud). MySQL tidak lagi digunakan.
+
 
 const app = express();
 const upload = multer({
