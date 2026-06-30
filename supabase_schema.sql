@@ -1,5 +1,5 @@
 -- Jalankan SQL ini di Supabase Dashboard > SQL Editor
--- https://supabase.com/dashboard/project/vzrrwbaupqegzbnsqvfe/sql/new
+-- https://app.supabase.com/project/aqjdvehjaterwdnyqwoj/sql/new
 
 -- 1. Buat tabel untuk database utama
 CREATE TABLE IF NOT EXISTS cbt_database (
@@ -20,7 +20,18 @@ CREATE TABLE IF NOT EXISTS cbt_results (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. Buat tabel untuk Global API Keys (NEW - untuk penyimpanan terpisah)
+-- 3. Buat tabel untuk Live Exams (real-time ujian)
+CREATE TABLE IF NOT EXISTS cbt_live_exams (
+  id BIGSERIAL PRIMARY KEY,
+  student_id TEXT NOT NULL,
+  mapel TEXT,
+  rombel TEXT,
+  data JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. Buat tabel untuk Global API Keys
 CREATE TABLE IF NOT EXISTS global_api_keys (
   id BIGSERIAL PRIMARY KEY,
   provider TEXT NOT NULL,
@@ -32,7 +43,7 @@ CREATE TABLE IF NOT EXISTS global_api_keys (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. Buat tabel untuk Teacher API Keys
+-- 5. Buat tabel untuk Teacher API Keys
 CREATE TABLE IF NOT EXISTS teacher_api_keys (
   id BIGSERIAL PRIMARY KEY,
   teacher_id TEXT NOT NULL,
@@ -44,13 +55,45 @@ CREATE TABLE IF NOT EXISTS teacher_api_keys (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 5. PENTING: Disable RLS agar anon key bisa baca/tulis
+-- 6. Buat tabel untuk Activity Logs
+CREATE TABLE IF NOT EXISTS activity_logs (
+  id BIGSERIAL PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  user_name TEXT,
+  role TEXT,
+  activity TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. Buat tabel untuk Grades (Penilaian)
+CREATE TABLE IF NOT EXISTS grades (
+  id BIGSERIAL PRIMARY KEY,
+  student_id TEXT NOT NULL,
+  mapel TEXT,
+  rombel TEXT,
+  u1 NUMERIC DEFAULT 0,
+  u2 NUMERIC DEFAULT 0,
+  u3 NUMERIC DEFAULT 0,
+  t1 NUMERIC DEFAULT 0,
+  t2 NUMERIC DEFAULT 0,
+  t3 NUMERIC DEFAULT 0,
+  kelas NUMERIC DEFAULT 100,
+  uas NUMERIC DEFAULT 0,
+  nilai_akhir NUMERIC DEFAULT 0,
+  data JSONB,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 8. PENTING: Disable RLS agar public key bisa baca/tulis
 ALTER TABLE cbt_database DISABLE ROW LEVEL SECURITY;
-ALTER TABLE cbt_results  DISABLE ROW LEVEL SECURITY;
+ALTER TABLE cbt_results DISABLE ROW LEVEL SECURITY;
+ALTER TABLE cbt_live_exams DISABLE ROW LEVEL SECURITY;
 ALTER TABLE global_api_keys DISABLE ROW LEVEL SECURITY;
 ALTER TABLE teacher_api_keys DISABLE ROW LEVEL SECURITY;
+ALTER TABLE activity_logs DISABLE ROW LEVEL SECURITY;
+ALTER TABLE grades DISABLE ROW LEVEL SECURITY;
 
--- 4. Sisipkan data awal (hanya jika tabel masih kosong)
+-- 9. Sisipkan data awal (hanya jika tabel masih kosong)
 INSERT INTO cbt_database (id, data)
 VALUES (1, '{
   "subjects": [
@@ -66,6 +109,7 @@ VALUES (1, '{
   "students": [{"id":"ADM","password":"admin321","name":"Administrator","role":"admin"}],
   "results": [],
   "schedules": [],
-  "timeLimits": {}
+  "timeLimits": {},
+  "schoolSettings": {}
 }'::jsonb)
 ON CONFLICT (id) DO NOTHING;
