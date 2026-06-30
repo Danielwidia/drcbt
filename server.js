@@ -10,12 +10,7 @@ const { parseWordDocument } = require('./wordParser');
 const mammoth = require('mammoth');
 const xlsx = require('xlsx');
 const pdf = require('pdf-parse');
-// MySQL modules are only loaded in non-Vercel (local/desktop) mode.
-// On Vercel, these spawn Worker Threads that try to connect to MySQL,
-// which does not exist in the serverless environment and crashes the function.
-const _IS_VERCEL_EARLY = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
-const sqlDb = _IS_VERCEL_EARLY ? null : require('./db');
-const mysqlMgr = _IS_VERCEL_EARLY ? null : require('./mysql-manager');
+// Database: Supabase (cloud). MySQL tidak lagi digunakan.
 
 const app = express();
 const upload = multer({
