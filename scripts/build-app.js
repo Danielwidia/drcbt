@@ -1,18 +1,14 @@
 /**
- * Build Script - CBT Dorkas
- * Membuat dist/CBT-Dorkas.exe dan menyalin semua file statis ke dist/APP/
+ * Build Script - CBT Dorkas (Supabase Cloud Version)
+ * Membuat dist/DR-CBT.exe dan menyalin semua file statis ke dist/APP/
  * Jalankan: node scripts/build-app.js
  */
 
 require('dotenv').config();
-const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const https = require('https');
-const { load } = require('resedit/cjs');
-const mysqlMgr = require('../mysql-manager'); // ← Tambahkan manager mysql
-
 
 const ROOT = path.join(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
@@ -25,7 +21,6 @@ const BLUE = '\x1b[34m';
 const YELLOW = '\x1b[33m';
 const RED = '\x1b[31m';
 const RESET = '\x1b[0m';
-const BOLD = '\x1b[1m';
 
 function log(color, msg) { console.log(`${color}${msg}${RESET}`); }
 
@@ -74,6 +69,7 @@ async function runBuild() {
         'wordParser.js',
         'style.css',
         'logo.png',
+        'db.js',
         '.env',
     ];
 
@@ -95,63 +91,17 @@ async function runBuild() {
 
     log(GREEN, `\n   Disalin: ${copiedCount} file | Dilewati: ${skippedCount} file`);
 
-    // ─── Langkah 3: Sinkronisasi Data & Gambar ────────────────────────────────────
-    log(BLUE, '\n🔄 Menyinkronkan data dan melokalisasi gambar...');
-    
-    // Optionally skip DB initialization (useful for packaging without running MySQL)
-    const SKIP_DB = process.env.SKIP_DB === '1' || process.env.SKIP_DB === 'true';
-    let sqlDb = null;
-    let db = {
-        subjects: [],
-        rombels: [],
-        questions: [],
-        students: [{ id: 'ADM', password: 'admin321', name: 'Administrator', role: 'admin' }],
-        results: [],
-        schedules: [],
-        timeLimits: {},
-        quizzes: []
-    };
+    // ─── Langkah 3: Sinkronisasi Data & Gambar dari Supabase ──────────────────────
+    log(BLUE, '\n🔄 Menyinkronkan data dan melokalisasi gambar dari Supabase...');
 
-    // Load local database from MySQL backend
-    let mysqlStartedByBuild = false;
-    try {
-        if (!SKIP_DB) {
-            // Coba jalankan MySQL Portable jika tidak sedang berjalan
-            try {
-                const busy = await mysqlMgr.isPortBusy();
-                if (!busy) {
-                    log(YELLOW, '   ℹ️  MySQL tidak terdeteksi, mencoba menjalankan Portable MySQL...');
-                    await mysqlMgr.start();
-                    mysqlStartedByBuild = true;
-                }
-            } catch (e) {
-                log(YELLOW, '   ⚠️  Gagal menjalankan Portable MySQL otomatis: ' + e.message);
-            }
-
-            sqlDb = require('../db');
-            if (sqlDb && typeof sqlDb.readDB === 'function') {
-                const localData = sqlDb.readDB();
-                if (localData) {
-                    db = { ...db, ...localData };
-                    log(GREEN, '   ✅ Data lokal (MySQL) dimuat');
-                }
-            } else {
-                log(YELLOW, '   ⚠️  Melewati pembacaan MySQL (tidak ada koneksi)');
-                sqlDb = null;
-            }
-        }
-    } catch (e) {
-        log(RED, '   ❌ Gagal memuat data MySQL: ' + e.message);
-        log(YELLOW, '      Mencoba melanjutkan tanpa sinkronisasi DB...');
-        sqlDb = null; // Pastikan sqlDb null agar tidak error lagi di akhir
-    }
+    let db = { questions: [] };
 
     // Check for Supabase
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_KEY;
 
     if (supabaseUrl && supabaseKey) {
-        log(YELLOW, '   ℹ️  Supabase terdeteksi, mencoba sinkronisasi...');
+        log(YELLOW, '   ℹ️  Supabase terdeteksi, mengunduh database...');
         try {
             const supabaseClient = createClient(supabaseUrl, supabaseKey);
             const { data, error } = await supabaseClient
@@ -162,14 +112,14 @@ async function runBuild() {
             
             if (error) throw error;
             if (data && data.data) {
-                // Merge data (keep local students if they are admins?) or just replace
-                db = { ...db, ...data.data };
+                db = data.data;
                 log(GREEN, '   ✅ Data dari Supabase berhasil disinkronkan');
             }
         } catch (e) {
             log(RED, '   ⚠️  Gagal sinkronisasi Supabase: ' + e.message);
-            log(YELLOW, '      Menggunakan data lokal yang ada.');
         }
+    } else {
+        log(YELLOW, '   ⚠️  SUPABASE_URL atau SUPABASE_KEY tidak ditemukan di environment.');
     }
 
     // Process Images
@@ -183,11 +133,9 @@ async function runBuild() {
                 for (let i = 0; i < q.images.length; i++) {
                     const imgUrl = q.images[i];
                     if (imgUrl && imgUrl.startsWith('http')) {
-                        // Remote URL (Supabase storage etc)
                         const fileName = path.basename(imgUrl.split('?')[0]);
                         const dest = path.join(LOCAL_IMAGES_DIR, fileName);
                         
-                        // Download if not exists locally
                         if (!fs.existsSync(dest)) {
                             try {
                                 await downloadImage(imgUrl, dest);
@@ -196,12 +144,8 @@ async function runBuild() {
                                 log(RED, `      ❌ Gagal download: ${imgUrl} -> ${e.message}`);
                             }
                         }
-                        
-                        // Localize path in DB (relative to APP root)
-                        q.images[i] = `/images/${fileName}`;
                         imgCount++;
                     } else if (imgUrl && imgUrl.startsWith('/images/')) {
-                        // Already local reference
                         imgCount++;
                     }
                 }
@@ -210,18 +154,6 @@ async function runBuild() {
     }
 
     log(GREEN, `   ✅ ${imgCount} referensi gambar dilokalisasi (${downloadCount} baru diunduh)`);
-
-    // Write final db updates back to the MySQL backend
-    try {
-        if (!SKIP_DB && sqlDb && typeof sqlDb.writeDB === 'function') {
-            sqlDb.writeDB(db);
-            log(GREEN, '   ✅ Data ditulis ke MySQL backend');
-        } else {
-            log(YELLOW, '   ⚠️  Melewati penulisan data ke MySQL (tidak ada koneksi)');
-        }
-    } catch (e) {
-        log(RED, '   ❌ Gagal menulis balik ke MySQL: ' + e.message);
-    }
 
     // Copy ALL images from local images/ to dist/APP/images
     log(BLUE, '\n📁 Menyalin semua gambar ke dist/APP/images...');
@@ -239,73 +171,13 @@ async function runBuild() {
         log(GREEN, `   ✅ ${imageCopiedCount} gambar disalin ke dist/APP/images/`);
     }
 
-    // JSON file lama sebagai fallback kosong saja
     const resultsPath = path.join(APP_DIR, 'results.json');
     if (!fs.existsSync(resultsPath)) {
         fs.writeFileSync(resultsPath, '[]', 'utf8');
     }
 
     log(GREEN, '   ✅ Proses sinkronisasi data dan aset selesai.');
-    if (sqlDb && typeof sqlDb.closeDb === 'function') {
-        sqlDb.closeDb();
-    }
-
-    // ─── Langkah 4: Copy Portable MySQL (jika ada) ─────────────────────────
-    log(BLUE, '\n📦 Menyalin Portable MySQL ke dist/APP/mysql...');
-    const SRC_MYSQL = path.join(ROOT, 'mysql');
-    const DEST_MYSQL = path.join(APP_DIR, 'mysql');
-
-    if (fs.existsSync(SRC_MYSQL)) {
-        try {
-            // Gunakan fs.cpSync (Node 16.7+) untuk copy rekursif
-            if (fs.cpSync) {
-                // Hapus folder mysql lama di dist agar benar-benar fresh
-                if (fs.existsSync(DEST_MYSQL)) {
-                    try { fs.rmSync(DEST_MYSQL, { recursive: true, force: true }); } catch (e) { log(YELLOW, '   ⚠️  Tidak dapat menghapus folder dest mysql (terkunci?), melakukan merge copy...'); }
-                }
-                
-                fs.cpSync(SRC_MYSQL, DEST_MYSQL, { 
-                    recursive: true, 
-                    force: true,
-                    filter: (src) => {
-                        // Lewati beberapa file log besar jika ada
-                        const name = path.basename(src).toLowerCase();
-                        if (name.endsWith('.err') || name.indexOf('mysql-bin') !== -1) return false;
-                        return true;
-                    }
-                });
-                log(GREEN, '   ✅ Portable MySQL berhasil disinkronkan ke dist/APP/mysql');
-            } else {
-                log(YELLOW, '   ⚠️  fs.cpSync tidak tersedia, menyalin menggunakan command shell...');
-                if (process.platform === 'win32') {
-                    // Pakai robocopy atau xcopy
-                    try {
-                        execSync(`robocopy "${SRC_MYSQL}" "${DEST_MYSQL}" /MIR /XF *.err *.log /R:0 /W:0`, { stdio: 'ignore' });
-                    } catch (e) {
-                         // robocopy returns non-zero even on success (exit codes 0-7 are success/info)
-                         if (e.status > 7) throw e;
-                    }
-                }
-                log(GREEN, '   ✅ Portable MySQL disinkronkan (via shell)');
-            }
-        } catch (e) {
-            log(RED, '   ❌ Gagal menyalin MySQL: ' + e.message);
-            log(YELLOW, '      Tips: Pastikan aplikasi/MySQL tidak sedang berjalan saat proses build ini.');
-        }
-    } else {
-        log(YELLOW, '   ⚠️  Folder mysql tidak ditemukan di root, dilewati');
-    }
-    
-    // Matikan MySQL jika kita yang menjalankannya di awal
-    if (mysqlStartedByBuild) {
-        log(BLUE, '\n🛑 Menghentikan Portable MySQL...');
-        mysqlMgr.stop();
-        // Beri waktu sebentar untuk MySQL shutdown
-        await new Promise(r => setTimeout(r, 2000));
-    }
-    
     log(GREEN, '\n✨ Step 1 (build-app) Berhasil!');
-    // Paksa keluar agar tidak menggantung handles async (seperti worker threads)
     setTimeout(() => process.exit(0), 500);
 }
 

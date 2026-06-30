@@ -1,719 +1,601 @@
 /**
- * db.js — Modul database MySQL terpisah untuk CBT Offline
- * Menggunakan sync-mysql agar API server tetap sinkron dan kompatibel dengan kode lama.
+ * db.js — Modul database Supabase untuk CBT Online
+ * Semua operasi database menggunakan Supabase sebagai backend tunggal.
+ * Data pokok (Soal, Siswa, Pengaturan, Jadwal) disimpan terpusat di cbt_database.
+ * Hasil Ujian, Checkpoint Live, Logs, dan Grades disimpan di tabel terpisah demi performa.
  */
 
-const path = require('path');
-const fs = require('fs');
-const MySQL = require('./sync-mysql-compat');
+require('dotenv').config();
+const { createClient } = require('@supabase/supabase-js');
 
-const isPkg = typeof process.pkg !== 'undefined';
-const baseDir = isPkg ? path.dirname(process.execPath) : __dirname;
-const rootPath = isPkg ? path.join(baseDir, 'APP') : __dirname;
+let _supabase = null;
 
-let _db = null;
-
-function getMySQLConfig() {
-    return {
-        host: process.env.MYSQL_HOST || '127.0.0.1',
-        port: Number(process.env.MYSQL_PORT || 3306),
-        user: process.env.MYSQL_USER || 'root',
-        password: process.env.MYSQL_PASSWORD || '',
-        database: process.env.MYSQL_DATABASE || 'cbt_offline',
-        charset: process.env.MYSQL_CHARSET || 'utf8mb4'
-    };
-}
-
-function ensureDatabaseExists() {
-    const config = getMySQLConfig();
-    const tempConn = new MySQL({
-        host: config.host,
-        port: config.port,
-        user: config.user,
-        password: config.password,
-        charset: config.charset
-    });
-
-    try {
-        tempConn.query(`CREATE DATABASE IF NOT EXISTS \`${config.database}\` CHARACTER SET ${config.charset} COLLATE ${config.charset}_general_ci`);
-    } catch (err) {
-        console.error('Failed to ensure MySQL database exists:', err.message);
-        throw err;
-    } finally {
-        if (typeof tempConn.end === 'function') tempConn.end();
+function getSupabase() {
+    if (_supabase) return _supabase;
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
+    if (!url || !key) {
+        throw new Error('SUPABASE_URL dan SUPABASE_KEY belum dikonfigurasi di env/Vercel');
     }
+    _supabase = createClient(url, key);
+    return _supabase;
 }
-
-function initDb() {
-    if (_db) return _db;
-    ensureDatabaseExists();
-    const config = getMySQLConfig();
-    const tempDb = new MySQL(config);
-    try {
-        _db = tempDb;
-        ensureSchema();
-        return _db;
-    } catch (err) {
-        _db = null; // Reset if schema fails
-        if (typeof tempDb.end === 'function') tempDb.end();
-        console.error('Failed to initialize MySQL schema:', err.message);
-        throw err;
-    }
-}
-
-function execute(sql, params = []) {
-    try {
-        const conn = initDb();
-        return conn.query(sql, params);
-    } catch (err) {
-        console.error(`[DB_EXEC_ERROR] SQL: ${sql.substring(0, 100)}...`, err.message);
-        throw err;
-    }
-}
-
-function queryOne(sql, params = []) {
-    const rows = execute(sql, params);
-    return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-}
-
-function queryAll(sql, params = []) {
-    const rows = execute(sql, params);
-    return Array.isArray(rows) ? rows : [];
-}
-
-function transaction(fn) {
-    const conn = initDb();
-    conn.query('START TRANSACTION');
-    try {
-        fn();
-        conn.query('COMMIT');
-    } catch (err) {
-        conn.query('ROLLBACK');
-        throw err;
-    }
-}
-
-function ensureSchema() {
-    const config = getMySQLConfig();
-    const charset = config.charset;
-
-    execute(`
-        CREATE TABLE IF NOT EXISTS config (
-            \`key\` VARCHAR(255) PRIMARY KEY,
-            \`value\` LONGTEXT NOT NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=${charset};
-    `);
-
-    execute(`
-        CREATE TABLE IF NOT EXISTS students (
-            id VARCHAR(255) PRIMARY KEY,
-            password VARCHAR(255) NOT NULL,
-            name VARCHAR(255) NOT NULL,
-            role VARCHAR(64) NOT NULL DEFAULT 'siswa',
-            data LONGTEXT NOT NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=${charset};
-    `);
-
-    execute(`
-        CREATE TABLE IF NOT EXISTS schedules (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            mapel VARCHAR(255) NOT NULL,
-            rombel VARCHAR(255) NOT NULL,
-            date_start VARCHAR(255),
-            date_end VARCHAR(255),
-            data LONGTEXT NOT NULL,
-            INDEX idx_schedules_mapel_rombel (mapel, rombel)
-        ) ENGINE=InnoDB DEFAULT CHARSET=${charset};
-    `);
-
-    execute(`
-        CREATE TABLE IF NOT EXISTS questions (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            mapel VARCHAR(191) NOT NULL,
-            rombel VARCHAR(191) NOT NULL,
-            type VARCHAR(64) NOT NULL DEFAULT 'single',
-            text LONGTEXT NOT NULL,
-            options LONGTEXT NOT NULL,
-            correct LONGTEXT NOT NULL,
-            images LONGTEXT NOT NULL,
-            data LONGTEXT NOT NULL,
-            INDEX idx_questions_mapel_rombel (mapel, rombel)
-        ) ENGINE=InnoDB DEFAULT CHARSET=${charset};
-    `);
-
-    execute(`
-        CREATE TABLE IF NOT EXISTS quizzes (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            data LONGTEXT NOT NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=${charset};
-    `);
-
-    execute(`
-        CREATE TABLE IF NOT EXISTS results (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            student_id VARCHAR(128) NOT NULL,
-            mapel VARCHAR(128) NOT NULL,
-            rombel VARCHAR(128) NOT NULL,
-            date VARCHAR(128) NOT NULL,
-            score DECIMAL(10,4) NOT NULL DEFAULT 0,
-            data TEXT NOT NULL,
-            created_at VARCHAR(128) NOT NULL,
-            UNIQUE KEY idx_results_unique (student_id, mapel, rombel, date),
-            INDEX idx_results_student (student_id),
-            INDEX idx_results_mapel_rombel (mapel, rombel)
-        ) ENGINE=InnoDB DEFAULT CHARSET=${charset};
-    `);
-
-    execute(`
-        CREATE TABLE IF NOT EXISTS live_exams (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            student_id VARCHAR(255) NOT NULL,
-            mapel VARCHAR(255) NOT NULL,
-            rombel VARCHAR(255) NOT NULL,
-            updated_at VARCHAR(255) NOT NULL,
-            data TEXT NOT NULL,
-            UNIQUE KEY idx_live_exams_unique (student_id, mapel, rombel)
-        ) ENGINE=InnoDB DEFAULT CHARSET=${charset};
-    `);
-
-    execute(`
-        CREATE TABLE IF NOT EXISTS live_quizz_participants (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            student_id VARCHAR(255) NOT NULL,
-            student_name VARCHAR(255) NOT NULL,
-            mapel VARCHAR(255) NOT NULL,
-            rombel VARCHAR(255) NOT NULL,
-            status VARCHAR(64) NOT NULL DEFAULT 'waiting',
-            last_ping BIGINT NOT NULL,
-            score INT DEFAULT 0,
-            question_answered INT DEFAULT 0,
-            UNIQUE KEY idx_lq_unique (student_id, mapel, rombel)
-        ) ENGINE=InnoDB DEFAULT CHARSET=${charset};
-    `);
-
-    execute(`
-        CREATE TABLE IF NOT EXISTS live_quizz_rooms (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            mapel VARCHAR(255) NOT NULL,
-            rombel VARCHAR(255) NOT NULL,
-            current_index INT DEFAULT 0,
-            status VARCHAR(64) DEFAULT 'waiting',
-            start_time BIGINT DEFAULT 0,
-            UNIQUE KEY idx_lqr_unique (mapel, rombel)
-        ) ENGINE=InnoDB DEFAULT CHARSET=${charset};
-    `);
-    
-    execute(`
-        CREATE TABLE IF NOT EXISTS user_logs (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            user_id VARCHAR(255),
-            user_name VARCHAR(255),
-            role VARCHAR(64),
-            activity TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=${charset};
-    `);
-
-    execute(`
-        CREATE TABLE IF NOT EXISTS grades (
-            student_id VARCHAR(191) NOT NULL,
-            mapel VARCHAR(191) NOT NULL,
-            rombel VARCHAR(191) NOT NULL,
-            u1 DECIMAL(10,2) DEFAULT 0,
-            u2 DECIMAL(10,2) DEFAULT 0,
-            u3 DECIMAL(10,2) DEFAULT 0,
-            t1 DECIMAL(10,2) DEFAULT 0,
-            t2 DECIMAL(10,2) DEFAULT 0,
-            t3 DECIMAL(10,2) DEFAULT 0,
-            kelas DECIMAL(10,2) DEFAULT 0,
-            uas DECIMAL(10,2) DEFAULT 0,
-            nilai_akhir DECIMAL(10,2) DEFAULT 0,
-            data TEXT, -- Flexible storage for multiple columns
-            PRIMARY KEY (student_id, mapel, rombel),
-            INDEX idx_grades_filter (mapel, rombel)
-        ) ENGINE=InnoDB DEFAULT CHARSET=${charset};
-    `);
-
-    // Ensure 'data' column exists in 'grades' (for existing tables)
-    try {
-        const columns = queryAll('SHOW COLUMNS FROM grades LIKE "data"');
-        if (columns.length === 0) {
-            execute('ALTER TABLE grades ADD COLUMN data TEXT AFTER nilai_akhir');
-            console.log('[DB] Added missing column "data" to table "grades"');
-        }
-    } catch (e) {
-        console.error('[DB] Failed to ensure column "data" in "grades":', e.message);
-    }
-
-    // Upgrade columns to LONGTEXT for existing databases (Migration)
-    try {
-        execute('ALTER TABLE config MODIFY COLUMN \`value\` LONGTEXT NOT NULL');
-        execute('ALTER TABLE questions MODIFY COLUMN text LONGTEXT NOT NULL');
-        execute('ALTER TABLE questions MODIFY COLUMN options LONGTEXT NOT NULL');
-        execute('ALTER TABLE questions MODIFY COLUMN correct LONGTEXT NOT NULL');
-        execute('ALTER TABLE questions MODIFY COLUMN images LONGTEXT NOT NULL');
-        execute('ALTER TABLE questions MODIFY COLUMN data LONGTEXT NOT NULL');
-        execute('ALTER TABLE students MODIFY COLUMN data LONGTEXT NOT NULL');
-        execute('ALTER TABLE results MODIFY COLUMN data LONGTEXT NOT NULL');
-        execute('ALTER TABLE live_exams MODIFY COLUMN data LONGTEXT NOT NULL');
-    } catch (e) {
-        // Silently skip if column already changed or table locked
-        console.warn('[DB] Migration to LONGTEXT skipped or failed:', e.message);
-    }
-}
-
-function closeDb() {
-    if (_db && typeof _db.end === 'function') {
-        _db.end();
-    }
-    _db = null;
-}
-
-function getUsersDb() { return initDb(); }
-function getQuestionsDb() { return initDb(); }
-function getResultsDb() { return initDb(); }
-function getDb() { return initDb(); }
 
 const enc = v => JSON.stringify(v);
-const dec = v => { try { return JSON.parse(v); } catch { return v; } };
+const dec = v => { try { return (typeof v === 'string') ? JSON.parse(v) : v; } catch { return v; } };
 
-function checkAndMigrate() {
-    // SQLite auto-migration logic is now in server.js autoMigrateIfNeeded
-}
+// Cache in-memory berdurasi pendek (2 detik) untuk mereduksi redundant SELECTs
+let localCache = null;
+let cacheTime = 0;
 
-function getConfig(key) {
-    const row = queryOne('SELECT value FROM config WHERE `key` = ?', [key]);
-    return row ? dec(row.value) : null;
-}
-
-function setConfig(key, value) {
-    execute('INSERT INTO config (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)', [key, enc(value)]);
-}
-
-function getSubjects() { return getConfig('subjects') || []; }
-function setSubjects(subjects) { setConfig('subjects', subjects); }
-function getRombels() { return getConfig('rombels') || []; }
-function setRombels(rombels) { setConfig('rombels', rombels); }
-function getTimeLimits() { return getConfig('timeLimits') || {}; }
-function setTimeLimits(t) { setConfig('timeLimits', t); }
-function getJenisUjian() { return getConfig('jenisUjian') || {}; }
-function setJenisUjian(j) { setConfig('jenisUjian', j); }
-
-function getSchoolSettings() { return getConfig('school_settings') || {}; }
-function setSchoolSettings(s) { setConfig('school_settings', s); }
-
-function getAllQuestions() {
-    const rows = queryAll('SELECT data FROM questions ORDER BY id');
-    return rows.map(r => dec(r.data));
-}
-
-function getQuestions(options = {}) {
-    let query = 'SELECT data FROM questions';
-    const params = [];
-    const where = [];
-    if (options.mapel) { where.push('mapel = ?'); params.push(options.mapel); }
-    if (options.rombel) { where.push('rombel = ?'); params.push(options.rombel); }
-    if (where.length > 0) query += ' WHERE ' + where.join(' AND ');
-    if (options.limit !== undefined && Number(options.limit) !== -1) {
-        query += ' LIMIT ?';
-        params.push(Number(options.limit));
-        if (options.offset !== undefined && options.offset !== null) {
-            query += ' OFFSET ?';
-            params.push(Number(options.offset));
-        }
-    } else if (options.offset !== undefined && options.offset !== null) {
-        // MySQL requires LIMIT if OFFSET is used. Use a very large number for "no limit".
-        query += ' LIMIT 18446744073709551615 OFFSET ?';
-        params.push(Number(options.offset));
+async function getFullDbFromSupabase() {
+    const now = Date.now();
+    if (localCache && (now - cacheTime < 2000)) {
+        return localCache;
     }
-    try {
-        const rows = queryAll(query, params);
-        return rows.map(r => dec(r.data));
-    } catch (e) {
-        console.error('getQuestions error:', e.message);
-        return [];
+    const sb = getSupabase();
+    const { data, error } = await sb.from('cbt_database').select('data').eq('id', 1).maybeSingle();
+    if (error) {
+        console.error('[Supabase] getFullDbFromSupabase error:', error.message);
+        throw error;
+    }
+    const dbObj = data?.data || {
+        subjects: [],
+        rombels: [],
+        students: [],
+        questions: [],
+        schedules: [],
+        timeLimits: {},
+        jenisUjian: {},
+        quizzes: [],
+        schoolSettings: {},
+        live_quizz_rooms: [],
+        live_quizz_participants: []
+    };
+    localCache = dbObj;
+    cacheTime = now;
+    return dbObj;
+}
+
+async function saveFullDbToSupabase(dbObj) {
+    const sb = getSupabase();
+    localCache = dbObj;
+    cacheTime = Date.now();
+    const { error } = await sb.from('cbt_database').upsert({ id: 1, data: dbObj, updated_at: new Date() });
+    if (error) {
+        console.error('[Supabase] saveFullDbToSupabase error:', error.message);
+        throw error;
     }
 }
 
-function getQuestionsCount(options = {}) {
-    let query = 'SELECT COUNT(*) as count FROM questions';
-    const params = [];
-    const where = [];
-    if (options.mapel) { where.push('mapel = ?'); params.push(options.mapel); }
-    if (options.rombel) { where.push('rombel = ?'); params.push(options.rombel); }
-    if (where.length > 0) query += ' WHERE ' + where.join(' AND ');
-    const row = queryOne(query, params);
-    return row ? Number(row.count || 0) : 0;
+// ─── Config Helper ───
+async function getConfig(key) {
+    const db = await getFullDbFromSupabase();
+    return db[key] !== undefined ? db[key] : null;
 }
 
-function setAllQuestions(questions) {
-    transaction(() => {
-        execute('DELETE FROM questions');
-        const batchSize = 100;
-        for (let i = 0; i < questions.length; i += batchSize) {
-            const batch = questions.slice(i, i + batchSize);
-            for (const q of batch) {
-                execute(
-                    'INSERT INTO questions (mapel, rombel, type, text, options, correct, images, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                    [q.mapel || '', q.rombel || '', q.type || 'single', q.text || '', enc(q.options || []), enc(q.correct), enc(q.images || []), enc(q)]
-                );
-            }
-        }
-    });
+async function setConfig(key, value) {
+    const db = await getFullDbFromSupabase();
+    db[key] = value;
+    await saveFullDbToSupabase(db);
 }
 
-function addQuestion(q) {
-    const result = execute(
-        'INSERT INTO questions (mapel, rombel, type, text, options, correct, images, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [q.mapel || '', q.rombel || '', q.type || 'single', q.text || '', enc(q.options || []), enc(q.correct), enc(q.images || []), enc(q)]
-    );
-    return result.insertId;
+// ─── Subject / Rombel / Settings ─────────────────────────────────────────────
+async function getSubjects() { return (await getConfig('subjects')) || []; }
+async function setSubjects(v) { return setConfig('subjects', v); }
+async function getRombels() { return (await getConfig('rombels')) || []; }
+async function setRombels(v) { return setConfig('rombels', v); }
+async function getTimeLimits() { return (await getConfig('timeLimits')) || {}; }
+async function setTimeLimits(v) { return setConfig('timeLimits', v); }
+async function getJenisUjian() { return (await getConfig('jenisUjian')) || {}; }
+async function setJenisUjian(v) { return setConfig('jenisUjian', v); }
+async function getSchoolSettings() { return (await getConfig('school_settings')) || {}; }
+async function setSchoolSettings(v) { return setConfig('school_settings', v); }
+
+// ─── Questions ────────────────────────────────────────────────────────────────
+async function getAllQuestions() {
+    const db = await getFullDbFromSupabase();
+    return db.questions || [];
 }
 
-function updateQuestion(index0Based, q) {
-    const rows = queryAll('SELECT id FROM questions ORDER BY id');
-    if (index0Based < 0 || index0Based >= rows.length) return false;
-    const id = rows[index0Based].id;
-    execute(
-        'UPDATE questions SET mapel=?, rombel=?, type=?, text=?, options=?, correct=?, images=?, data=? WHERE id=?',
-        [q.mapel || '', q.rombel || '', q.type || 'single', q.text || '', enc(q.options || []), enc(q.correct), enc(q.images || []), enc(q), id]
-    );
-    return true;
-}
-
-function deleteQuestion(index0Based) {
-    const rows = queryAll('SELECT id FROM questions ORDER BY id');
-    if (index0Based < 0 || index0Based >= rows.length) return false;
-    execute('DELETE FROM questions WHERE id = ?', [rows[index0Based].id]);
-    return true;
-}
-
-function getAllStudents() {
-    const rows = queryAll('SELECT data FROM students ORDER BY id');
-    return rows.map(r => dec(r.data));
-}
-
-function setAllStudents(students) {
-    transaction(() => {
-        execute('DELETE FROM students');
-        for (const s of students) {
-            execute(
-                'INSERT INTO students (id, password, name, role, data) VALUES (?, ?, ?, ?, ?)',
-                [s.id || '', s.password || '', s.name || '', s.role || 'siswa', enc(s)]
-            );
-        }
-    });
-}
-
-function getStudentById(id) {
-    const row = queryOne('SELECT data FROM students WHERE id = ?', [id]);
-    return row ? dec(row.data) : null;
-}
-
-function upsertStudent(s) {
-    execute(
-        'INSERT INTO students (id, password, name, role, data) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE password=VALUES(password), name=VALUES(name), role=VALUES(role), data=VALUES(data)',
-        [s.id || '', s.password || '', s.name || '', s.role || 'siswa', enc(s)]
-    );
-}
-
-function deleteStudent(id) {
-    execute('DELETE FROM students WHERE id = ?', [id]);
-}
-
-function getAllSchedules() {
-    const rows = queryAll('SELECT data FROM schedules ORDER BY id');
-    return rows.map(r => dec(r.data));
-}
-
-function setAllSchedules(schedules) {
-    transaction(() => {
-        execute('DELETE FROM schedules');
-        for (const s of schedules) {
-            execute(
-                'INSERT INTO schedules (mapel, rombel, date_start, date_end, data) VALUES (?, ?, ?, ?, ?)',
-                [s.mapel || '', s.rombel || '', s.dateStart || s.date_start || null, s.dateEnd || s.date_end || null, enc(s)]
-            );
-        }
-    });
-}
-
-function getAllQuizzes() {
-    const rows = queryAll('SELECT data FROM quizzes ORDER BY id');
-    return rows.map(r => dec(r.data));
-}
-
-function setAllQuizzes(quizzes) {
-    transaction(() => {
-        execute('DELETE FROM quizzes');
-        for (const q of quizzes) execute('INSERT INTO quizzes (data) VALUES (?)', [enc(q)]);
-    });
-}
-
-function getAllResults() {
-    const rows = queryAll('SELECT data FROM results ORDER BY created_at DESC');
-    return rows.map(r => dec(r.data));
-}
-
-function getResults(options = {}) {
-    const all = getAllResults();
+async function getQuestions(options = {}) {
+    const all = await getAllQuestions();
     let filtered = all;
-    if (options.studentId) {
-        const sid = String(options.studentId).trim().toLowerCase();
-        filtered = filtered.filter(r => String(r.studentId || "").trim().toLowerCase() === sid);
-    }
     if (options.mapel) {
-        const search = String(options.mapel).trim().toLowerCase();
-        filtered = filtered.filter(r => {
-            const m = String(r.mapel || "").trim().toLowerCase();
-            return m === search || m.includes(search) || search.includes(m);
-        });
+        const m = String(options.mapel).toLowerCase().trim();
+        filtered = filtered.filter(q => String(q.mapel).toLowerCase().trim() === m);
     }
     if (options.rombel) {
-        const rid = String(options.rombel).trim().toLowerCase();
-        filtered = filtered.filter(r => String(r.rombel || "").trim().toLowerCase() === rid);
+        const r = String(options.rombel).toLowerCase().trim();
+        filtered = filtered.filter(q => String(q.rombel).toLowerCase().trim() === r);
     }
-    filtered.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-    const offset = options.offset || 0;
-    const limit = (options.limit === -1 || options.limit === undefined) ? filtered.length : options.limit;
+    const offset = Number(options.offset) || 0;
+    const limit = (options.limit !== undefined && Number(options.limit) !== -1) ? Number(options.limit) : 1000;
     return filtered.slice(offset, offset + limit);
 }
 
-function getResultsCount(options = {}) {
-    return getResults(options).length;
+async function getQuestionsCount(options = {}) {
+    const filtered = await getQuestions({ ...options, limit: -1, offset: 0 });
+    return filtered.length;
 }
 
-function upsertResult(r) {
+async function setAllQuestions(questions) {
+    const db = await getFullDbFromSupabase();
+    db.questions = questions || [];
+    await saveFullDbToSupabase(db);
+}
+
+async function addQuestion(q) {
+    const db = await getFullDbFromSupabase();
+    if (!db.questions) db.questions = [];
+    const newId = db.questions.length ? Math.max(...db.questions.map(x => x.id || 0)) + 1 : 1;
+    const newQuestion = { ...q, id: newId };
+    db.questions.push(newQuestion);
+    await saveFullDbToSupabase(db);
+    return newId;
+}
+
+async function updateQuestion(index0Based, q) {
+    const db = await getFullDbFromSupabase();
+    if (!db.questions || index0Based < 0 || index0Based >= db.questions.length) return false;
+    db.questions[index0Based] = { ...db.questions[index0Based], ...q };
+    await saveFullDbToSupabase(db);
+    return true;
+}
+
+async function deleteQuestion(index0Based) {
+    const db = await getFullDbFromSupabase();
+    if (!db.questions || index0Based < 0 || index0Based >= db.questions.length) return false;
+    db.questions.splice(index0Based, 1);
+    await saveFullDbToSupabase(db);
+    return true;
+}
+
+// ─── Students ─────────────────────────────────────────────────────────────────
+async function getAllStudents() {
+    const db = await getFullDbFromSupabase();
+    return db.students || [];
+}
+
+async function setAllStudents(students) {
+    const db = await getFullDbFromSupabase();
+    db.students = students || [];
+    await saveFullDbToSupabase(db);
+}
+
+async function getStudentById(id) {
+    const all = await getAllStudents();
+    const norm = String(id || '').trim().toLowerCase();
+    return all.find(s => String(s.id || '').trim().toLowerCase() === norm) || null;
+}
+
+async function upsertStudent(s) {
+    const db = await getFullDbFromSupabase();
+    if (!db.students) db.students = [];
+    const normId = String(s.id || '').trim().toLowerCase();
+    const idx = db.students.findIndex(x => String(x.id || '').trim().toLowerCase() === normId);
+    if (idx !== -1) {
+        db.students[idx] = { ...db.students[idx], ...s };
+    } else {
+        db.students.push(s);
+    }
+    await saveFullDbToSupabase(db);
+}
+
+async function deleteStudent(id) {
+    const db = await getFullDbFromSupabase();
+    if (!db.students) return;
+    const normId = String(id || '').trim().toLowerCase();
+    db.students = db.students.filter(x => String(x.id || '').trim().toLowerCase() !== normId);
+    await saveFullDbToSupabase(db);
+}
+
+// ─── Schedules ────────────────────────────────────────────────────────────────
+async function getAllSchedules() {
+    const db = await getFullDbFromSupabase();
+    return db.schedules || [];
+}
+
+async function setAllSchedules(schedules) {
+    const db = await getFullDbFromSupabase();
+    db.schedules = schedules || [];
+    await saveFullDbToSupabase(db);
+}
+
+// ─── Quizzes ──────────────────────────────────────────────────────────────────
+async function getAllQuizzes() {
+    const db = await getFullDbFromSupabase();
+    return db.quizzes || [];
+}
+
+async function setAllQuizzes(quizzes) {
+    const db = await getFullDbFromSupabase();
+    db.quizzes = quizzes || [];
+    await saveFullDbToSupabase(db);
+}
+
+// ─── Results ──────────────────────────────────────────────────────────────────
+async function getAllResults() {
+    const sb = getSupabase();
+    const { data, error } = await sb.from('cbt_results').select('data').order('created_at', { ascending: false });
+    if (error) throw new Error('getAllResults error: ' + error.message);
+    return (data || []).map(r => dec(r.data));
+}
+
+async function getResults(options = {}) {
+    const sb = getSupabase();
+    let query = sb.from('cbt_results').select('data');
+    if (options.studentId) query = query.eq('student_id', options.studentId);
+    if (options.mapel) query = query.ilike('mapel', `%${options.mapel}%`);
+    if (options.rombel) query = query.eq('rombel', options.rombel);
+    query = query.order('created_at', { ascending: false });
+    const limit = (options.limit !== undefined && options.limit !== -1) ? Number(options.limit) : 10000;
+    const offset = Number(options.offset) || 0;
+    query = query.range(offset, offset + limit - 1);
+    const { data, error } = await query;
+    if (error) throw new Error('getResults error: ' + error.message);
+    return (data || []).map(r => dec(r.data));
+}
+
+async function getResultsCount(options = {}) {
+    const sb = getSupabase();
+    let query = sb.from('cbt_results').select('id', { count: 'exact', head: true });
+    if (options.studentId) query = query.eq('student_id', options.studentId);
+    if (options.mapel) query = query.ilike('mapel', `%${options.mapel}%`);
+    if (options.rombel) query = query.eq('rombel', options.rombel);
+    const { count, error } = await query;
+    if (error) throw new Error('getResultsCount error: ' + error.message);
+    return count || 0;
+}
+
+async function upsertResult(r) {
+    const sb = getSupabase();
     const scoreVal = typeof r.score === 'string' ? parseFloat(r.score) : (r.score || 0);
     const dateVal = r.date || new Date().toISOString();
-    execute(
-        'INSERT INTO results (student_id, mapel, rombel, date, score, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE score=VALUES(score), data=VALUES(data)',
-        [r.studentId || '', r.mapel || '', r.rombel || '', dateVal, scoreVal, enc(r), dateVal]
-    );
-}
-
-function deleteResult(studentId, mapel, rombel, date) {
-    execute('DELETE FROM results WHERE student_id=? AND mapel=? AND rombel=? AND date=?', [studentId, mapel, rombel, date]);
-}
-
-function setAllResults(resultsArr) {
-    transaction(() => {
-        const toDelete = resultsArr.filter(r => r.deleted === true);
-        const active = resultsArr.filter(r => r.deleted !== true);
-        for (const r of toDelete) deleteResult(r.studentId || '', r.mapel || '', r.rombel || '', r.date || '');
-        
-        const batchSize = 100;
-        for (let i = 0; i < active.length; i += batchSize) {
-            const batch = active.slice(i, i + batchSize);
-            for (const r of batch) {
-                const scoreVal = typeof r.score === 'string' ? parseFloat(r.score) : (r.score || 0);
-                const dateVal = r.date || new Date().toISOString();
-                execute(
-                    'INSERT INTO results (student_id, mapel, rombel, date, score, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE score=VALUES(score), data=VALUES(data)',
-                    [r.studentId || '', r.mapel || '', r.rombel || '', dateVal, scoreVal, enc(r), dateVal]
-                );
-            }
-        }
-    });
-}
-
-function mergeResults(inc = []) {
-    for (const r of inc) {
-        if (r.deleted) deleteResult(r.studentId || '', r.mapel || '', r.rombel || '', r.date || '');
-        else upsertResult(r);
+    const record = {
+        student_id: r.studentId || '',
+        mapel: r.mapel || '',
+        rombel: r.rombel || '',
+        date: dateVal,
+        score: scoreVal,
+        data: enc(r),
+        created_at: dateVal
+    };
+    const { data: existing } = await sb.from('cbt_results').select('id')
+        .match({ student_id: record.student_id, mapel: record.mapel, rombel: record.rombel, date: record.date })
+        .maybeSingle();
+    if (existing) {
+        const { error } = await sb.from('cbt_results').update({ score: record.score, data: record.data }).eq('id', existing.id);
+        if (error) throw new Error('upsertResult update error: ' + error.message);
+    } else {
+        const { error } = await sb.from('cbt_results').insert(record);
+        if (error) throw new Error('upsertResult insert error: ' + error.message);
     }
 }
 
-function getAllLiveExams() {
-    const rows = queryAll('SELECT data FROM live_exams');
-    return rows.map(r => dec(r.data));
+async function deleteResult(studentId, mapel, rombel, date) {
+    const sb = getSupabase();
+    const { error } = await sb.from('cbt_results').delete()
+        .match({ student_id: studentId, mapel, rombel, date });
+    if (error) throw new Error('deleteResult error: ' + error.message);
 }
 
-function upsertLiveExam(exam) {
+async function setAllResults(resultsArr) {
+    const toDelete = resultsArr.filter(r => r.deleted === true);
+    const active = resultsArr.filter(r => r.deleted !== true);
+    for (const r of toDelete) {
+        await deleteResult(r.studentId || '', r.mapel || '', r.rombel || '', r.date || '');
+    }
+    for (const r of active) {
+        await upsertResult(r);
+    }
+}
+
+async function mergeResults(inc = []) {
+    for (const r of inc) {
+        if (r.deleted) await deleteResult(r.studentId || '', r.mapel || '', r.rombel || '', r.date || '');
+        else await upsertResult(r);
+    }
+}
+
+// ─── Live Exams ───────────────────────────────────────────────────────────────
+async function getAllLiveExams() {
+    const sb = getSupabase();
+    const { data, error } = await sb.from('cbt_live_exams').select('data');
+    if (error) throw new Error('getAllLiveExams error: ' + error.message);
+    return (data || []).map(r => dec(r.data));
+}
+
+async function upsertLiveExam(exam) {
+    const sb = getSupabase();
     const sid = String(exam.studentId || '').trim().toLowerCase();
     const map = String(exam.mapel || '').trim().toLowerCase();
     const rom = String(exam.rombel || '').trim().toLowerCase();
-    execute('DELETE FROM live_exams WHERE LOWER(TRIM(student_id)) = ? AND LOWER(TRIM(mapel)) = ? AND LOWER(TRIM(rombel)) = ?', [sid, map, rom]);
-    execute(
-        'INSERT INTO live_exams (student_id, mapel, rombel, updated_at, data) VALUES (?, ?, ?, ?, ?)',
-        [exam.studentId || '', exam.mapel || '', exam.rombel || '', exam.updatedAt || new Date().toISOString(), enc(exam)]
-    );
+    const { data: existing } = await sb.from('cbt_live_exams').select('id')
+        .match({ student_id: sid, mapel: map, rombel: rom }).maybeSingle();
+    const record = {
+        student_id: exam.studentId || '',
+        mapel: exam.mapel || '',
+        rombel: exam.rombel || '',
+        updated_at: exam.updatedAt || new Date().toISOString(),
+        data: enc(exam)
+    };
+    if (existing) {
+        const { error } = await sb.from('cbt_live_exams').update(record).eq('id', existing.id);
+        if (error) throw new Error('upsertLiveExam update error: ' + error.message);
+    } else {
+        const { error } = await sb.from('cbt_live_exams').insert(record);
+        if (error) throw new Error('upsertLiveExam insert error: ' + error.message);
+    }
 }
 
-function clearCheckpointDirectly(sid, map, rom) {
+async function clearCheckpointDirectly(sid, map, rom) {
+    const sb = getSupabase();
     const nid = String(sid || '').trim().toLowerCase();
     const nmp = String(map || '').trim().toLowerCase();
     const nrb = String(rom || '').trim().toLowerCase();
-    const rows = queryAll('SELECT id, data FROM live_exams WHERE LOWER(TRIM(student_id)) = ? AND LOWER(TRIM(mapel)) = ? AND LOWER(TRIM(rombel)) = ?', [nid, nmp, nrb]);
-    for (const row of rows) {
-        const data = dec(row.data);
-        if (data.adminSavedProgress) {
-            console.log(`[db.js] Hard-clearing checkpoint for record ID: ${row.id}`);
-            data.adminSavedProgress = null;
-            data.adminSaveConfirmed = false;
-            data.savedByAdminCommand = false;
-            execute('UPDATE live_exams SET data=? WHERE id=?', [enc(data), row.id]);
+    const { data: rows, error: fetchErr } = await sb.from('cbt_live_exams').select('id, data')
+        .match({ student_id: nid, mapel: nmp, rombel: nrb });
+    if (fetchErr) throw new Error('clearCheckpointDirectly error: ' + fetchErr.message);
+    for (const row of (rows || [])) {
+        const d = dec(row.data);
+        if (d.adminSavedProgress) {
+            d.adminSavedProgress = null;
+            d.adminSaveConfirmed = false;
+            d.savedByAdminCommand = false;
+            await sb.from('cbt_live_exams').update({ data: enc(d) }).eq('id', row.id);
         }
     }
 }
 
-function setAllLiveExams(exams) {
-    transaction(() => {
-        execute('DELETE FROM live_exams');
-        for (const e of exams) {
-            execute(
-                'INSERT INTO live_exams (student_id, mapel, rombel, updated_at, data) VALUES (?, ?, ?, ?, ?)',
-                [e.studentId || '', e.mapel || '', e.rombel || '', e.updatedAt || new Date().toISOString(), enc(e)]
-            );
+async function setAllLiveExams(exams) {
+    const sb = getSupabase();
+    const { error: delErr } = await sb.from('cbt_live_exams').delete().neq('id', 0);
+    if (delErr) throw new Error('setAllLiveExams delete error: ' + delErr.message);
+    if (!exams || exams.length === 0) return;
+    const rows = exams.map(e => ({
+        student_id: e.studentId || '',
+        mapel: e.mapel || '',
+        rombel: e.rombel || '',
+        updated_at: e.updatedAt || new Date().toISOString(),
+        data: enc(e)
+    }));
+    const { error } = await sb.from('cbt_live_exams').insert(rows);
+    if (error) throw new Error('setAllLiveExams insert error: ' + error.message);
+}
+
+// ─── Live Quizz Participants ──────────────────────────────────────────────────
+async function upsertQuizzParticipant(p) {
+    const db = await getFullDbFromSupabase();
+    if (!db.live_quizz_participants) db.live_quizz_participants = [];
+    const now = Date.now();
+    const idx = db.live_quizz_participants.findIndex(x => x.studentId === p.studentId && x.mapel === p.mapel && x.rombel === p.rombel);
+    const record = {
+        studentId: p.studentId,
+        studentName: p.studentName,
+        mapel: p.mapel,
+        rombel: p.rombel,
+        lastPing: now,
+        status: p.status || 'waiting',
+        score: p.score || 0,
+        question_answered: p.question_answered || 0
+    };
+    if (idx !== -1) {
+        db.live_quizz_participants[idx] = { ...db.live_quizz_participants[idx], ...record, score: db.live_quizz_participants[idx].score || record.score };
+    } else {
+        db.live_quizz_participants.push(record);
+    }
+    await saveFullDbToSupabase(db);
+}
+
+async function getQuizzParticipants(mapel, rombel) {
+    const db = await getFullDbFromSupabase();
+    if (!db.live_quizz_participants) db.live_quizz_participants = [];
+    const staleTime = Date.now() - 30000;
+    // delete stale
+    db.live_quizz_participants = db.live_quizz_participants.filter(p => p.lastPing >= staleTime);
+    await saveFullDbToSupabase(db);
+
+    const m = String(mapel).toLowerCase().trim();
+    const r = String(rombel).toLowerCase().trim();
+    return db.live_quizz_participants.filter(p => String(p.mapel).toLowerCase().trim() === m && String(p.rombel).toLowerCase().trim() === r)
+        .map(p => ({
+            student_id: p.studentId,
+            student_name: p.studentName,
+            status: p.status,
+            score: p.score
+        }));
+}
+
+async function setQuizzStatus(mapel, rombel, status) {
+    const db = await getFullDbFromSupabase();
+    if (!db.live_quizz_participants) db.live_quizz_participants = [];
+    const m = String(mapel).toLowerCase().trim();
+    const r = String(rombel).toLowerCase().trim();
+    db.live_quizz_participants.forEach(p => {
+        if (String(p.mapel).toLowerCase().trim() === m && String(p.rombel).toLowerCase().trim() === r) {
+            p.status = status;
+            if (status === 'start') p.score = 0;
         }
     });
+    await saveFullDbToSupabase(db);
 }
 
-function upsertQuizzParticipant(p) {
-    const now = Date.now();
-    execute(
-        'INSERT INTO live_quizz_participants (student_id, student_name, mapel, rombel, last_ping, status) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE student_name=VALUES(student_name), last_ping=VALUES(last_ping), status=VALUES(status)',
-        [p.studentId, p.studentName, p.mapel, p.rombel, now, p.status || 'waiting']
-    );
-}
-
-function getQuizzParticipants(mapel, rombel) {
-    const staleTime = Date.now() - 30000;
-    execute('DELETE FROM live_quizz_participants WHERE last_ping < ?', [staleTime]);
-    return queryAll('SELECT student_id, student_name, status, score FROM live_quizz_participants WHERE mapel = ? AND rombel = ?', [mapel, rombel]);
-}
-
-function setQuizzStatus(mapel, rombel, status) {
-    if (status === 'start') {
-        execute('UPDATE live_quizz_participants SET status = ?, score = 0 WHERE mapel = ? AND rombel = ?', [status, mapel, rombel]);
-    } else {
-        execute('UPDATE live_quizz_participants SET status = ? WHERE mapel = ? AND rombel = ?', [status, mapel, rombel]);
+async function updateQuizzScore(studentId, mapel, rombel, score) {
+    const db = await getFullDbFromSupabase();
+    if (!db.live_quizz_participants) db.live_quizz_participants = [];
+    const sid = String(studentId).toLowerCase().trim();
+    const m = String(mapel).toLowerCase().trim();
+    const r = String(rombel).toLowerCase().trim();
+    const p = db.live_quizz_participants.find(x => String(x.studentId).toLowerCase().trim() === sid && String(x.mapel).toLowerCase().trim() === m && String(x.rombel).toLowerCase().trim() === r);
+    if (p) {
+        p.score = score;
+        p.lastPing = Date.now();
+        p.question_answered = 1;
+        await saveFullDbToSupabase(db);
     }
 }
 
-function updateQuizzScore(studentId, mapel, rombel, score) {
-    const now = Date.now();
-    execute('UPDATE live_quizz_participants SET score = ?, last_ping = ?, question_answered = 1 WHERE student_id = ? AND mapel = ? AND rombel = ?', [score, now, studentId, mapel, rombel]);
-}
-
-function markQuizzAnswered(studentId, mapel, rombel) {
-    const now = Date.now();
-    execute('UPDATE live_quizz_participants SET question_answered = 1, last_ping = ? WHERE student_id = ? AND mapel = ? AND rombel = ?', [now, studentId, mapel, rombel]);
-}
-
-function resetQuizzAnswered(mapel, rombel) {
-    execute('UPDATE live_quizz_participants SET question_answered = 0 WHERE mapel = ? AND rombel = ?', [mapel, rombel]);
-}
-
-function checkAllAnswered(mapel, rombel) {
-    const result = queryOne('SELECT COUNT(*) as total, SUM(question_answered) as answered FROM live_quizz_participants WHERE mapel = ? AND rombel = ?', [mapel, rombel]);
-    if (!result || result.total === 0 || result.total === null) {
-        return false;
+async function markQuizzAnswered(studentId, mapel, rombel) {
+    const db = await getFullDbFromSupabase();
+    if (!db.live_quizz_participants) db.live_quizz_participants = [];
+    const sid = String(studentId).toLowerCase().trim();
+    const m = String(mapel).toLowerCase().trim();
+    const r = String(rombel).toLowerCase().trim();
+    const p = db.live_quizz_participants.find(x => String(x.studentId).toLowerCase().trim() === sid && String(x.mapel).toLowerCase().trim() === m && String(x.rombel).toLowerCase().trim() === r);
+    if (p) {
+        p.question_answered = 1;
+        p.lastPing = Date.now();
+        await saveFullDbToSupabase(db);
     }
-    const answeredCount = result.answered || 0;
-    const allAnswered = result.total > 0 && result.total === answeredCount;
-    console.log(`[DB_CHECK_ALL] mapel=${mapel} rombel=${rombel}: total=${result.total}, answered=${answeredCount}, result=${allAnswered}`);
+}
+
+async function resetQuizzAnswered(mapel, rombel) {
+    const db = await getFullDbFromSupabase();
+    if (!db.live_quizz_participants) db.live_quizz_participants = [];
+    const m = String(mapel).toLowerCase().trim();
+    const r = String(rombel).toLowerCase().trim();
+    db.live_quizz_participants.forEach(p => {
+        if (String(p.mapel).toLowerCase().trim() === m && String(p.rombel).toLowerCase().trim() === r) {
+            p.question_answered = 0;
+        }
+    });
+    await saveFullDbToSupabase(db);
+}
+
+async function checkAllAnswered(mapel, rombel) {
+    const db = await getFullDbFromSupabase();
+    if (!db.live_quizz_participants) return false;
+    const m = String(mapel).toLowerCase().trim();
+    const r = String(rombel).toLowerCase().trim();
+    const participants = db.live_quizz_participants.filter(p => String(p.mapel).toLowerCase().trim() === m && String(p.rombel).toLowerCase().trim() === r);
+    if (participants.length === 0) return false;
+    const allAnswered = participants.every(p => p.question_answered === 1);
+    console.log(`[DB_CHECK_ALL] mapel=${mapel} rombel=${rombel}: total=${participants.length}, allAnswered=${allAnswered}`);
     return allAnswered;
 }
 
-function resetQuizzParticipants(mapel, rombel) {
-    execute('DELETE FROM live_quizz_participants WHERE mapel = ? AND rombel = ?', [mapel, rombel]);
-    execute('DELETE FROM live_quizz_rooms WHERE mapel = ? AND rombel = ?', [mapel, rombel]);
-}
-
-function upsertQuizzRoom(mapel, rombel, status, currentIndex, startTime) {
-    execute(
-        'INSERT INTO live_quizz_rooms (mapel, rombel, status, current_index, start_time) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE status=VALUES(status), current_index=VALUES(current_index), start_time=VALUES(start_time)',
-        [mapel, rombel, status, currentIndex, startTime]
-    );
-}
-
-function addLog(userId, userName, role, activity) {
-    execute(
-        'INSERT INTO user_logs (user_id, user_name, role, activity) VALUES (?, ?, ?, ?)',
-        [userId, userName, role, activity]
-    );
-}
-
-function getLogs(limit = 20) {
-    return queryAll('SELECT * FROM user_logs ORDER BY created_at DESC LIMIT ?', [limit]);
-}
-
-function clearLogs() {
-    execute('DELETE FROM user_logs');
-}
-
-function getGrades(mapel, rombel) {
-    let sql = 'SELECT * FROM grades';
-    const params = [];
-    if (mapel || rombel) {
-        sql += ' WHERE';
-        const parts = [];
-        if (mapel) { parts.push(' mapel = ?'); params.push(mapel); }
-        if (rombel) { parts.push(' rombel = ?'); params.push(rombel); }
-        sql += parts.join(' AND');
+async function resetQuizzParticipants(mapel, rombel) {
+    const db = await getFullDbFromSupabase();
+    const m = String(mapel).toLowerCase().trim();
+    const r = String(rombel).toLowerCase().trim();
+    if (db.live_quizz_participants) {
+        db.live_quizz_participants = db.live_quizz_participants.filter(p => !(String(p.mapel).toLowerCase().trim() === m && String(p.rombel).toLowerCase().trim() === r));
     }
-    return queryAll(sql, params);
+    if (db.live_quizz_rooms) {
+        db.live_quizz_rooms = db.live_quizz_rooms.filter(x => !(String(x.mapel).toLowerCase().trim() === m && String(x.rombel).toLowerCase().trim() === r));
+    }
+    await saveFullDbToSupabase(db);
 }
 
-function upsertGrade(g) {
+async function upsertQuizzRoom(mapel, rombel, status, currentIndex, startTime) {
+    const db = await getFullDbFromSupabase();
+    if (!db.live_quizz_rooms) db.live_quizz_rooms = [];
+    const m = String(mapel).toLowerCase().trim();
+    const r = String(rombel).toLowerCase().trim();
+    const record = { mapel, rombel, status, current_index: currentIndex, start_time: startTime };
+    const idx = db.live_quizz_rooms.findIndex(x => String(x.mapel).toLowerCase().trim() === m && String(x.rombel).toLowerCase().trim() === r);
+    if (idx !== -1) {
+        db.live_quizz_rooms[idx] = { ...db.live_quizz_rooms[idx], ...record };
+    } else {
+        db.live_quizz_rooms.push(record);
+    }
+    await saveFullDbToSupabase(db);
+}
+
+async function getQuizzRoom(mapel, rombel) {
+    const db = await getFullDbFromSupabase();
+    if (!db.live_quizz_rooms) return null;
+    const m = String(mapel).toLowerCase().trim();
+    const r = String(rombel).toLowerCase().trim();
+    const room = db.live_quizz_rooms.find(x => String(x.mapel).toLowerCase().trim() === m && String(x.rombel).toLowerCase().trim() === r);
+    return room ? {
+        mapel: room.mapel,
+        rombel: room.rombel,
+        status: room.status,
+        current_index: room.current_index,
+        start_time: room.start_time
+    } : null;
+}
+
+// ─── User Logs / Activity Logs ───────────────────────────────────────────────
+async function addLog(userId, userName, role, activity) {
+    const sb = getSupabase();
+    const { error } = await sb.from('activity_logs').insert({ user_id: userId, user_name: userName, role, activity });
+    if (error) console.error('[DB] addLog error:', error.message);
+}
+
+async function getLogs(limit = 20) {
+    const sb = getSupabase();
+    const { data, error } = await sb.from('activity_logs').select('*')
+        .order('created_at', { ascending: false }).limit(limit);
+    if (error) throw new Error('getLogs error: ' + error.message);
+    return data || [];
+}
+
+async function clearLogs() {
+    const sb = getSupabase();
+    const { error } = await sb.from('activity_logs').delete().neq('id', 0);
+    if (error) throw new Error('clearLogs error: ' + error.message);
+}
+
+// ─── Grades ───────────────────────────────────────────────────────────────────
+async function getGrades(mapel, rombel) {
+    const sb = getSupabase();
+    let query = sb.from('grades').select('*');
+    if (mapel) query = query.eq('mapel', mapel);
+    if (rombel) query = query.eq('rombel', rombel);
+    const { data, error } = await query;
+    if (error) throw new Error('getGrades error: ' + error.message);
+    return data || [];
+}
+
+async function upsertGrade(g) {
     if (!g) return;
-    execute(`
-        INSERT INTO grades (student_id, mapel, rombel, u1, u2, u3, t1, t2, t3, kelas, uas, nilai_akhir, data)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE 
-            u1=VALUES(u1), u2=VALUES(u2), u3=VALUES(u3), 
-            t1=VALUES(t1), t2=VALUES(t2), t3=VALUES(t3), 
-            kelas=VALUES(kelas), uas=VALUES(uas), nilai_akhir=VALUES(nilai_akhir),
-            data=VALUES(data)
-    `, [
-        g.student_id || g.studentId, g.mapel, g.rombel, 
-        g.u1 || 0, g.u2 || 0, g.u3 || 0, 
-        g.t1 || 0, g.t2 || 0, g.t3 || 0, 
-        g.kelas || 0, g.uas || 0, g.nilai_akhir || g.nilaiAkhir || 0,
-        enc(g.data || {})
-    ]);
-}
-
-function getQuizzRoom(mapel, rombel) {
-    return queryOne('SELECT * FROM live_quizz_rooms WHERE mapel = ? AND rombel = ?', [mapel, rombel]);
-}
-
-function readDB(loadAll = true) {
-    const data = {
-        subjects: getSubjects(),
-        rombels: getRombels(),
-        students: getAllStudents(),
-        schedules: getAllSchedules(),
-        timeLimits: getTimeLimits(),
-        jenisUjian: getJenisUjian(),
-        quizzes: getAllQuizzes(),
-        schoolSettings: getSchoolSettings()
+    const sb = getSupabase();
+    const record = {
+        student_id: g.student_id || g.studentId,
+        mapel: g.mapel, rombel: g.rombel,
+        u1: g.u1 || 0, u2: g.u2 || 0, u3: g.u3 || 0,
+        t1: g.t1 || 0, t2: g.t2 || 0, t3: g.t3 || 0,
+        kelas: g.kelas || 0, uas: g.uas || 0,
+        nilai_akhir: g.nilai_akhir || g.nilaiAkhir || 0,
+        data: enc(g.data || {})
     };
-    if (loadAll) {
-        data.questions = getAllQuestions();
-        data.results = getAllResults();
+    const { data: existing } = await sb.from('grades').select('student_id')
+        .match({ student_id: record.student_id, mapel: record.mapel, rombel: record.rombel }).maybeSingle();
+    if (existing) {
+        const { error } = await sb.from('grades').update(record)
+            .match({ student_id: record.student_id, mapel: record.mapel, rombel: record.rombel });
+        if (error) throw new Error('upsertGrade update error: ' + error.message);
+    } else {
+        const { error } = await sb.from('grades').insert(record);
+        if (error) throw new Error('upsertGrade insert error: ' + error.message);
     }
-    return data;
 }
 
-function writeDB(obj) {
-    if (obj.subjects !== undefined) setSubjects(obj.subjects);
-    if (obj.rombels !== undefined) setRombels(obj.rombels);
-    if (obj.questions !== undefined) setAllQuestions(obj.questions);
-    if (obj.students !== undefined) setAllStudents(obj.students);
-    if (obj.schedules !== undefined) setAllSchedules(obj.schedules);
-    if (obj.timeLimits !== undefined) setTimeLimits(obj.timeLimits);
-    if (obj.jenisUjian !== undefined) setJenisUjian(obj.jenisUjian);
-    if (obj.quizzes !== undefined) setAllQuizzes(obj.quizzes);
-    if (obj.results !== undefined) setAllResults(obj.results);
-    if (obj.schoolSettings !== undefined) setSchoolSettings(obj.schoolSettings);
+// ─── readDB / writeDB ─────────────────────────────────────────────────────────
+async function readDB(loadAll = true) {
+    const dbObj = await getFullDbFromSupabase();
+    if (loadAll) {
+        dbObj.results = await getAllResults();
+    }
+    return dbObj;
+}
+
+async function writeDB(obj) {
+    await saveFullDbToSupabase(obj);
 }
 
 function getDbPath() {
-    const config = getMySQLConfig();
-    return `mysql://${config.user}@${config.host}:${config.port}/${config.database}`;
+    return `supabase://${process.env.SUPABASE_URL || 'not-configured'}`;
 }
+
+function getDb() { return getSupabase(); }
+function closeDb() { /* no-op for Supabase */ }
+function getUsersDb() { return getSupabase(); }
+function getQuestionsDb() { return getSupabase(); }
+function getResultsDb() { return getSupabase(); }
 
 module.exports = {
     getDb, getDbPath, closeDb,
@@ -728,7 +610,8 @@ module.exports = {
     getAllResults, upsertResult, deleteResult, setAllResults, mergeResults, getResults, getResultsCount,
     getAllLiveExams, upsertLiveExam, setAllLiveExams, clearCheckpointDirectly,
     addLog, getLogs, clearLogs,
-    upsertQuizzParticipant, getQuizzParticipants, setQuizzStatus, resetQuizzParticipants, updateQuizzScore, markQuizzAnswered, resetQuizzAnswered, checkAllAnswered,
+    upsertQuizzParticipant, getQuizzParticipants, setQuizzStatus, resetQuizzParticipants,
+    updateQuizzScore, markQuizzAnswered, resetQuizzAnswered, checkAllAnswered,
     upsertQuizzRoom, getQuizzRoom,
     getGrades, upsertGrade,
     readDB, writeDB

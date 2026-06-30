@@ -60,11 +60,10 @@ console.log(`
   📦 Output:
      dist/DR-CBT.exe  (${exeSize})
      dist/APP/            (file konfigurasi & data statis)
-       ├── .env            ← Konfigurasi Database (MySQL)
-       ├── mysql/          ← Portable MySQL (Pindahkan ke sini jika offline)
-       └── images/         ← SEMUA gambar soal (Offline)
+        ├── .env            ← Konfigurasi Database (Supabase Cloud)
+        └── images/         ← SEMUA gambar soal (Offline Cache)
 
   🚀 Cara pakai:
-     1. Pastikan folder 'mysql' ada di dalam folder 'dist/APP/'.
-     2. Jalankan: dist\DR-CBT.exe
+     1. Pastikan file '.env' di folder 'dist/APP/' berisi SUPABASE_URL & SUPABASE_KEY yang benar.
+     2. Jalankan: dist\\DR-CBT.exe
 ${RESET}`);

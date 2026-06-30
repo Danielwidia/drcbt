@@ -75,19 +75,17 @@ async function run() {
         );
         vi.outputToResourceEntries(res.entries);
         
-        // 3. Manifest (Force Run as Administrator)
-        // Kita paksa aplikasi meminta hak UAC Administrator agar MySQL bisa menulis file di Program Files
+        // 3. Manifest (Run as normal user / Invoker)
         try {
             const manifest = ResEdit.Resource.Manifest.prepare(res.entries);
-            manifest.executionLevel = 'requireAdministrator';
+            manifest.executionLevel = 'asInvoker';
             
             // Simpan perubahan manifest kembali ke resource entries
             manifest.outputToResourceEntries(res.entries);
             
-            log(GREEN, '   ✅ Manifest (Run as Administrator) diterapkan pada EXE');
+            log(GREEN, '   ✅ Manifest (Run as Invoker) diterapkan pada EXE');
         } catch (e) {
             log(YELLOW, '   ⚠️  Gagal menerapkan Manifest: ' + e.message);
-            log(YELLOW, '      Aplikasi tetap bisa berjalan, namun mungkin perlu klik kanan "Run as Administrator" jika di Program Files.');
         }
 
         res.outputResource(exe);
