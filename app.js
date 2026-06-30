@@ -7913,7 +7913,7 @@ async function renderStudentExamList() {
                             ${isNotAccessible ? '<span class="px-3 py-1 bg-red-100 text-red-600 rounded-full text-[10px] font-black uppercase flex items-center gap-1"><i class="fas fa-lock"></i> Belum Dibuka</span>' : alreadyDone ? '<span class="px-3 py-1 bg-emerald-100 text-emerald-600 rounded-full text-[10px] font-black uppercase">Selesai</span>' : '<span class="px-3 py-1 bg-amber-100 text-amber-600 rounded-full text-[10px] font-black uppercase">Tersedia</span>'}
                         </div>
                         <h3 class="text-lg font-black text-slate-800 mb-1">${m}</h3>
-                        <p class="text-slate-400 text-xs mb-6 font-medium">${currentJenis} - SMP Kristen Dorkas</p>
+                        <p class="text-slate-400 text-xs mb-6 font-medium">${currentJenis} - ${getSchoolSettings().name}</p>
                         ${isNotAccessible ?
                 `<button disabled class="w-full py-4 bg-slate-300 text-slate-600 font-bold rounded-2xl cursor-not-allowed">BELUM DIBUKA</button>` :
                 alreadyDone ?
