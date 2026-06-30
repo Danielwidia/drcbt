@@ -1331,6 +1331,42 @@ app.post('/api/results', async (req, res) => {
     }
 });
 
+// ─── Activity Logs (GET + DELETE) ───────────────────────────────────────────
+app.get('/api/logs', async (req, res) => {
+    try {
+        const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20));
+        // Use initialized supabase client if available, otherwise create one
+        const sb = supabase || createClient(process.env.SUPABASE_URL || '', process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || '');
+        if (!sb) return res.json({ ok: true, items: [] });
+
+        const { data, error } = await sb.from('cbt_logs').select('*').order('created_at', { ascending: false }).range(0, limit - 1);
+        if (error) {
+            console.warn('[GET /api/logs] Supabase error:', error.message || error);
+            return res.json({ ok: true, items: [] });
+        }
+        return res.json({ ok: true, items: data || [] });
+    } catch (e) {
+        console.error('GET /api/logs error:', e.message);
+        return res.json({ ok: true, items: [] });
+    }
+});
+
+app.delete('/api/logs', async (req, res) => {
+    try {
+        const sb = supabase || createClient(process.env.SUPABASE_URL || '', process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || '');
+        if (!sb) return res.json({ ok: true });
+        const { error } = await sb.from('cbt_logs').delete().neq('id', 0);
+        if (error) {
+            console.warn('[DELETE /api/logs] Supabase error:', error.message || error);
+            return res.json({ ok: false, error: error.message || String(error) });
+        }
+        return res.json({ ok: true });
+    } catch (e) {
+        console.error('DELETE /api/logs error:', e.message);
+        return res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 // ─── Manajemen Nilai API ───────────────────────────────────────────────────────
 app.get('/api/grades', async (req, res) => {
     try {
