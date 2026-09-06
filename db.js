@@ -376,9 +376,9 @@ async function upsertLiveExam(exam) {
     const { data: existing } = await sb.from('cbt_live_exams').select('id')
         .match({ student_id: sid, mapel: map, rombel: rom }).maybeSingle();
     const record = {
-        student_id: exam.studentId || '',
-        mapel: exam.mapel || '',
-        rombel: exam.rombel || '',
+        student_id: sid,
+        mapel: map,
+        rombel: rom,
         updated_at: normalizeTimestamp(exam.updatedAt),
         data: enc(exam)
     };

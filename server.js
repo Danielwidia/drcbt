@@ -782,15 +782,58 @@ async function writeResults(results) {
 }
 
 
-async function readLiveExams() {
-    try {
-        const items = await sqlDb.getAllLiveExams();
-        console.log('[readLiveExams] Parsed', items.length, 'items');
-        return items;
-    } catch (e) {
-        console.error('[readLiveExams] Error:', e.message);
-        return [];
+const liveExamsMemoryMap = new Map();
+
+function parseExamTimestamp(val) {
+    if (!val && val !== 0) return 0;
+    if (typeof val === 'number') return val;
+    const str = String(val).trim();
+    if (/^\d+$/.test(str)) {
+        let ms = Number(str);
+        if (str.length === 10) ms *= 1000;
+        return ms;
     }
+    const parsed = Date.parse(str);
+    return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+async function readLiveExams() {
+    let dbItems = [];
+    try {
+        dbItems = await sqlDb.getAllLiveExams();
+        if (!Array.isArray(dbItems)) dbItems = [];
+    } catch (e) {
+        console.warn('[readLiveExams] Supabase fetch warning:', e.message);
+    }
+
+    const norm = v => String(v || '').trim().toLowerCase();
+    const mergedMap = new Map();
+
+    // 1. Fill from in-memory cache
+    for (const [key, exam] of liveExamsMemoryMap.entries()) {
+        mergedMap.set(key, exam);
+    }
+
+    // 2. Merge with DB items
+    for (const exam of dbItems) {
+        if (!exam || !exam.studentId || !exam.mapel) continue;
+        const key = `${norm(exam.studentId)}|${norm(exam.mapel)}`;
+        const existingMemory = mergedMap.get(key);
+
+        if (!existingMemory) {
+            mergedMap.set(key, exam);
+            liveExamsMemoryMap.set(key, exam);
+        } else {
+            const memTime = parseExamTimestamp(existingMemory.updatedAt);
+            const dbTime = parseExamTimestamp(exam.updatedAt);
+            if (dbTime >= memTime) {
+                mergedMap.set(key, exam);
+                liveExamsMemoryMap.set(key, exam);
+            }
+        }
+    }
+
+    return Array.from(mergedMap.values());
 }
 
 async function writeLiveExams(liveExams) {
@@ -871,60 +914,63 @@ function mergeLiveExamData(existing, incoming) {
 }
 
 async function insertLiveExamSingle(exam) {
-    console.log('[insertLiveExamSingle] Received exam:', { studentId: exam.studentId, mapel: exam.mapel, rombel: exam.rombel, updatedAt: exam.updatedAt, type: typeof exam.updatedAt });
-    try {
-        const normalizeExamDate = value => {
-            if (value === undefined || value === null || value === '') return new Date().toISOString();
-            if (typeof value === 'number') return new Date(value).toISOString();
-            const trimmed = String(value).trim();
-            if (/^\d+$/.test(trimmed)) {
-                let ms = Number(trimmed);
-                if (trimmed.length === 10) ms *= 1000;
-                return new Date(ms).toISOString();
+    if (!exam || typeof exam !== 'object' || !exam.studentId || !exam.mapel) {
+        console.warn('[insertLiveExamSingle] Invalid exam payload:', exam);
+        return;
+    }
+    console.log('[insertLiveExamSingle] Received exam:', { studentId: exam.studentId, mapel: exam.mapel, rombel: exam.rombel, updatedAt: exam.updatedAt });
+
+    const norm = v => String(v || '').trim().toLowerCase();
+    const nid = norm(exam.studentId);
+    const nrb = norm(exam.rombel);
+    const nmp = norm(exam.mapel);
+    const key = `${nid}|${nmp}`;
+
+    let existing = liveExamsMemoryMap.get(key);
+    if (!existing) {
+        try {
+            const allExams = await sqlDb.getAllLiveExams();
+            if (Array.isArray(allExams)) {
+                existing = allExams.find(e => norm(e.studentId) === nid && norm(e.mapel) === nmp);
             }
-            const parsed = Date.parse(trimmed);
-            return Number.isNaN(parsed) ? new Date().toISOString() : new Date(parsed).toISOString();
-        };
+        } catch (e) {
+            console.warn('[insertLiveExamSingle] DB fetch warning:', e.message);
+        }
+    }
 
-        exam.updatedAt = normalizeExamDate(exam.updatedAt);
-
-        const norm = v => String(v || '').trim().toLowerCase();
-        const nid = norm(exam.studentId);
-        const nrb = norm(exam.rombel);
-        const nmp = norm(exam.mapel);
-
-        const allExams = await sqlDb.getAllLiveExams();
-        const existing = allExams.find(e =>
-            norm(e.studentId) === nid &&
-            norm(e.rombel) === nrb &&
-            norm(e.mapel) === nmp
-        );
-
-        if (exam.adminDeleteCheckpoint) {
-            console.log(`[insertLiveExamSingle] 🚀 HARD WIPING database checkpoint for ${nid}`);
+    if (exam.adminDeleteCheckpoint) {
+        console.log(`[insertLiveExamSingle] 🚀 HARD WIPING database checkpoint for ${nid}`);
+        try {
             await sqlDb.clearCheckpointDirectly(nid, nmp, nrb);
-
-            if (existing) {
-                existing.adminSavedProgress = null;
-                existing.adminSaveConfirmed = false;
-                existing.savedByAdminCommand = false;
-            }
+        } catch (e) {
+            console.warn('[insertLiveExamSingle] clearCheckpointDirectly warning:', e.message);
         }
 
-        const merged = mergeLiveExamData(existing || {}, exam);
-
-        if (exam.adminDeleteCheckpoint) {
-            merged.adminSavedProgress = null;
-            merged.adminSaveConfirmed = false;
-            merged.savedByAdminCommand = false;
-            merged.adminClearRequest = Date.now();
+        if (existing) {
+            existing.adminSavedProgress = null;
+            existing.adminSaveConfirmed = false;
+            existing.savedByAdminCommand = false;
         }
+    }
 
+    const merged = mergeLiveExamData(existing || {}, exam);
+
+    if (exam.adminDeleteCheckpoint) {
+        merged.adminSavedProgress = null;
+        merged.adminSaveConfirmed = false;
+        merged.savedByAdminCommand = false;
+        merged.adminClearRequest = Date.now();
+    }
+
+    // Save in memory map
+    liveExamsMemoryMap.set(key, merged);
+
+    // Save in DB asynchronously / gracefully
+    try {
         await sqlDb.upsertLiveExam(merged);
-        console.log('[insertLiveExamSingle] Saved checkpoints in Supabase');
+        console.log('[insertLiveExamSingle] Saved in memory & Supabase for', nid, nmp);
     } catch (err) {
-        console.error('[insertLiveExamSingle] Error:', err.message);
-        throw err;
+        console.warn('[insertLiveExamSingle] Saved in memory, but Supabase update failed:', err.message);
     }
 }
 
@@ -1466,8 +1512,8 @@ app.get('/api/live-exams', async (req, res) => {
         // 1. Fresh exams (updated within 5 minutes) - for current active students
         // 2. Admin-saved checkpoints (any age, if adminSavedProgress.answers exists) - for restore after reload
         const result = liveExams.filter(exam => {
-            const updatedAt = exam.updatedAt ? new Date(exam.updatedAt).getTime() : 0;
-            const isFresh = !Number.isNaN(updatedAt) && (now - updatedAt) < 5 * 60 * 1000;
+            const updatedAt = parseExamTimestamp(exam.updatedAt);
+            const isFresh = updatedAt > 0 && (now - updatedAt) < 5 * 60 * 1000;
 
             // Check if this has a valid admin-saved checkpoint
             const hasAdminCheckpoint = exam.adminSavedProgress &&
@@ -1477,13 +1523,6 @@ app.get('/api/live-exams', async (req, res) => {
             return isFresh || hasAdminCheckpoint;
         });
 
-        const fresh = liveExams.filter(exam => {
-            const updatedAt = exam.updatedAt ? new Date(exam.updatedAt).getTime() : 0;
-            return !Number.isNaN(updatedAt) && (now - updatedAt) < 5 * 60 * 1000;
-        });
-        const withCheckpoint = result.filter(e => e.adminSavedProgress && Array.isArray(e.adminSavedProgress.answers) && e.adminSavedProgress.answers.length > 0);
-
-        // console.log('[GET /api/live-exams] Total:', liveExams.length, '| Fresh (<5min):', fresh.length, '| With admin checkpoint:', withCheckpoint.length, '| Returned:', result.length);
         return res.json(result);
     } catch (e) {
         console.error('[GET /api/live-exams] Error:', e.message);

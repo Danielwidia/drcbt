@@ -4396,12 +4396,16 @@ function renderRombelProgress() {
         const completedCount = completedMapels.size;
         const totalMapels = selectedMapel ? (availableMapels.includes(selectedMapel) ? 1 : 0) : availableMapels.length;
 
+        const normStr = v => String(v || '').trim().toLowerCase();
+        const sid = normStr(s.id);
+        const srom = normStr(s.rombel);
+
         const activeEntry = (db.activeExams || []).find(e => {
-            const sameId = String(e.studentId).trim().toLowerCase() === String(s.id).trim().toLowerCase();
-            const sameRombel = String(e.rombel).trim().toLowerCase() === String(s.rombel).trim().toLowerCase();
+            const sameId = normStr(e.studentId) === sid;
+            const sameRombel = !e.rombel || !s.rombel || normStr(e.rombel) === srom;
             const sameMapel = !selectedMapel ?
-                (teacherMapels ? teacherMapels.includes(e.mapel) : true) :
-                String(e.mapel).trim().toLowerCase() === String(selectedMapel).trim().toLowerCase();
+                (teacherMapels ? teacherMapels.some(tm => normStr(tm) === normStr(e.mapel)) : true) :
+                normStr(e.mapel) === normStr(selectedMapel);
 
             return sameId && sameRombel && sameMapel;
         });
@@ -8733,6 +8737,19 @@ async function fetchLiveExamsFromServer() {
     }
 }
 
+function parseLiveExamTimestamp(val) {
+    if (!val && val !== 0) return Date.now();
+    if (typeof val === 'number') return val;
+    const str = String(val).trim();
+    if (/^\d+$/.test(str)) {
+        let ms = Number(str);
+        if (str.length === 10) ms *= 1000;
+        return ms;
+    }
+    const parsed = Date.parse(str);
+    return Number.isNaN(parsed) ? Date.now() : parsed;
+}
+
 async function syncAdminLiveState() {
     const adminSection = document.getElementById('admin-rombel');
     const teacherProgressSection = document.getElementById('teacher-tab-live-progress');
@@ -8745,10 +8762,10 @@ async function syncAdminLiveState() {
         let changed = false;
         const now = Date.now();
         const fiveMinMs = 5 * 60 * 1000;
+        const norm = v => String(v || '').trim().toLowerCase();
 
         // Load local state from other tabs (optional but good for consistency)
         const other = await loadLocalDb();
-        if (!other) return false;
 
         // Fetch from server if online
         let serverExams = [];
@@ -8764,11 +8781,12 @@ async function syncAdminLiveState() {
         const mergedExams = {};
 
         // 1. Add local exams first (fallback)
-        const localExams = Array.isArray(db.activeExams) ? db.activeExams : (Array.isArray(other.activeExams) ? other.activeExams : []);
+        const localExams = Array.isArray(db.activeExams) ? db.activeExams : ((other && Array.isArray(other.activeExams)) ? other.activeExams : []);
         localExams.forEach(exam => {
-            const key = `${exam.studentId}|${exam.mapel}`;
+            if (!exam || !exam.studentId || !exam.mapel) return;
+            const key = `${norm(exam.studentId)}|${norm(exam.mapel)}`;
             // Preserve age filtering for local data
-            const updatedAt = exam.updatedAt ? new Date(exam.updatedAt).getTime() : now;
+            const updatedAt = parseLiveExamTimestamp(exam.updatedAt);
             if (now - updatedAt < fiveMinMs) {
                 mergedExams[key] = exam;
             }
@@ -8776,7 +8794,8 @@ async function syncAdminLiveState() {
 
         // 2. Override with Server Exams (Precedence)
         serverExams.forEach(exam => {
-            const key = `${exam.studentId}|${exam.mapel}`;
+            if (!exam || !exam.studentId || !exam.mapel) return;
+            const key = `${norm(exam.studentId)}|${norm(exam.mapel)}`;
             // Mark server data as "Trusted" (Skip aggressive age check locally if server says OK)
             exam.isActive = true;
             mergedExams[key] = exam;
@@ -8784,22 +8803,22 @@ async function syncAdminLiveState() {
 
         const finalExams = Object.values(mergedExams);
 
-        // Update in-memory db if content changed
-        // Use a simpler check: length or individual timestamps
+        // Update in-memory db
         const oldLen = (db.activeExams || []).length;
         const newLen = finalExams.length;
 
         let contentChanged = oldLen !== newLen;
         if (!contentChanged && newLen > 0) {
-            // Shallow check for timestamp changes
-            contentChanged = finalExams.some((exam, i) => {
-                const old = db.activeExams.find(oe => oe.studentId === exam.studentId && oe.mapel === exam.mapel);
-                return !old || old.updatedAt !== exam.updatedAt || old.percentage !== exam.percentage;
+            // Shallow check for timestamp changes or percentage changes
+            contentChanged = finalExams.some((exam) => {
+                const old = (db.activeExams || []).find(oe => norm(oe.studentId) === norm(exam.studentId) && norm(oe.mapel) === norm(exam.mapel));
+                return !old || old.updatedAt !== exam.updatedAt || old.percentage !== exam.percentage || old.currentQuestionNumber !== exam.currentQuestionNumber;
             });
         }
 
-        if (contentChanged) {
-            db.activeExams = finalExams;
+        db.activeExams = finalExams;
+
+        if (contentChanged || (oldLen === 0 && newLen > 0)) {
             changed = true;
             await saveLocalDb(); // Ensure persistence for other tabs
         }
