@@ -89,8 +89,16 @@ async function getTimeLimits() { return (await getConfig('timeLimits')) || {}; }
 async function setTimeLimits(v) { return setConfig('timeLimits', v); }
 async function getJenisUjian() { return (await getConfig('jenisUjian')) || {}; }
 async function setJenisUjian(v) { return setConfig('jenisUjian', v); }
-async function getSchoolSettings() { return (await getConfig('school_settings')) || {}; }
-async function setSchoolSettings(v) { return setConfig('school_settings', v); }
+async function getSchoolSettings() { 
+    const db = await getFullDbFromSupabase();
+    return db.schoolSettings || db.school_settings || {}; 
+}
+async function setSchoolSettings(v) { 
+    const db = await getFullDbFromSupabase();
+    db.schoolSettings = v;
+    db.school_settings = v;
+    await saveFullDbToSupabase(db);
+}
 
 // ─── Questions ────────────────────────────────────────────────────────────────
 async function getAllQuestions() {

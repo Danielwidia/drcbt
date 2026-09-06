@@ -6566,9 +6566,15 @@ async function previewSchoolLogo(event) {
         if (res.ok) {
             const data = await res.json();
             if (data.ok && data.url) {
-                // Simpan URL logo ke localStorage agar saveSchoolSettings bisa baca
-                const urlToSave = data.urlBase || data.url.split('?')[0];
-                if (urlToSave) localStorage.setItem('cbt_school_logo_url', urlToSave);
+                const urlToSave = data.urlBase || data.url;
+                if (urlToSave) {
+                    localStorage.setItem('cbt_school_logo_url', urlToSave);
+                    localStorage.setItem('cbt_school_logo', data.url);
+                }
+                if (!db.schoolSettings) db.schoolSettings = {};
+                db.schoolSettings.logoUrl = data.url;
+                db.schoolSettings.logo = data.url;
+                renderSchoolIdentity(db.schoolSettings);
                 console.log('[Logo] ✅ Upload berhasil. URL:', data.url);
                 showToast('Logo berhasil diupload ke server!', 'success');
             }

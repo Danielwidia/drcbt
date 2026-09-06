@@ -1122,7 +1122,7 @@ app.get('/api/admin/global-api-keys', async (req, res) => {
 // ─── API: School Settings (Public Branding) ──────────────────────────────────
 app.get('/api/school-settings', async (req, res) => {
     try {
-        const settings = sqlDb.getSchoolSettings();
+        const settings = await sqlDb.getSchoolSettings();
         res.json(settings || {});
     } catch (e) {
         console.error('GET /api/school-settings error:', e.message);
@@ -1136,8 +1136,8 @@ app.post('/api/school-settings', async (req, res) => {
         if (!settings || typeof settings !== 'object') {
             return res.status(400).json({ ok: false, error: 'Invalid settings payload' });
         }
-        sqlDb.setSchoolSettings(settings);
-        console.log('[school-settings] Saved. Name:', settings.name, '| Has logo:', !!settings.logo);
+        await sqlDb.setSchoolSettings(settings);
+        console.log('[school-settings] Saved. Name:', settings.name, '| Has logo:', !!settings.logo || !!settings.logoUrl);
         res.json({ ok: true });
     } catch (e) {
         console.error('POST /api/school-settings error:', e.message);
@@ -2657,7 +2657,7 @@ app.post('/api/generate-admin-doc', upload.single('blueprint'), async (req, res)
     topik = topik || topic;
 
     // Ambil Pengaturan Sekolah
-    const schoolSettings = sqlDb.getSchoolSettings() || {};
+    const schoolSettings = (await sqlDb.getSchoolSettings()) || {};
     const effectiveSchoolName = schoolName || schoolSettings.name || 'Nama Sekolah';
     const effectiveAddress = address || schoolSettings.address || '';
     const effectiveTeacherName = teacherName || (schoolSettings.principal ? `Guru (${schoolSettings.principal})` : 'Guru Mata Pelajaran');
