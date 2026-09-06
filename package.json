@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "CBT Exam Browser - Consolidated Root Version",
   "engines": {
-    "node": ">=20.0.0"
+    "node": "20.x"
   },
   "main": "server.js",
   "bin": "server.js",

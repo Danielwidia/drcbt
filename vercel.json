@@ -10,10 +10,9 @@
         "*.png",
         "*.css",
         "*.ico",
-        "app.js",
-        "images/**"
+        "app.js"
       ],
-      "maxDuration": 300
+      "maxDuration": 60
     }
   }
 }
