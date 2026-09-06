@@ -17,7 +17,26 @@ function log(c, m) { console.log(`${c}${m}${RESET}`); }
 const ROOT = path.join(__dirname, '..');
 
 if (process.env.VERCEL) {
-    log(GREEN, '⚡ Terdeteksi environment Vercel. Melewati pembuatan installer Windows .exe.');
+    log(GREEN, '⚡ Terdeteksi environment Vercel. Menyiapkan berkas statis ke folder public/...');
+    const publicDir = path.join(ROOT, 'public');
+    if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
+
+    const staticFiles = [
+        'index.html', 'admin.html', 'guru.html', 'siswa.html', 'quizz.html',
+        'administrasi_guru.html', 'app.js', 'style.css', 'logo.png',
+        'school_logo.png', 'favicon.ico'
+    ];
+
+    staticFiles.forEach(file => {
+        const src = path.join(ROOT, file);
+        const dest = path.join(publicDir, file);
+        if (fs.existsSync(src)) {
+            fs.copyFileSync(src, dest);
+            console.log(`  [Public] Copied ${file} -> public/${file}`);
+        }
+    });
+
+    log(GREEN, '✅ Menyiapkan folder public/ selesai.');
     process.exit(0);
 }
 
