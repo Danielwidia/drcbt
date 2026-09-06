@@ -56,8 +56,14 @@ if (fs.existsSync(fallbackImagesPath) && fallbackImagesPath !== imagesPath) {
     app.use('/images', express.static(fallbackImagesPath));
 }
 
-// Serve other static files from APP folder (external in .exe, local in dev)
+// Serve static files from root, public, and __dirname candidate paths
 app.use(express.static(rootPath));
+app.use(express.static(path.join(rootPath, 'public')));
+app.use(express.static(path.join(process.cwd())));
+app.use(express.static(path.join(process.cwd(), 'public')));
+app.use(express.static(path.join(__dirname)));
+app.use(express.static(path.join(__dirname, '..')));
+app.use(express.static(path.join(__dirname, '../public')));
 
 // ─── Environment ──────────────────────────────────────────────────────────────
 // Mode: Supabase sebagai satu-satunya database (cloud).
