@@ -1231,6 +1231,7 @@ app.post('/api/db', async (req, res) => {
 });
 
 // ─── API: Upload Image to Local Storage ──────────────────────────────────────
+// ─── API: Upload Image to Local Storage ──────────────────────────────────────
 app.post('/api/upload-image', upload.single('image'), async (req, res) => {
     try {
         if (!req.file) {
@@ -1242,23 +1243,30 @@ app.post('/api/upload-image', upload.single('image'), async (req, res) => {
         const fileExt = path.extname(rawFileName) || '.jpg';
         const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}${fileExt}`;
 
-        // Simpan ke folder images lokal di dalam APP
-        const imagesDir = path.join(rootPath, 'images');
-        if (!fs.existsSync(imagesDir)) {
-            fs.mkdirSync(imagesDir, { recursive: true });
+        try {
+            const imagesDir = path.join(rootPath, 'images');
+            if (!fs.existsSync(imagesDir)) {
+                fs.mkdirSync(imagesDir, { recursive: true });
+            }
+
+            const localPath = path.join(imagesDir, fileName);
+            fs.writeFileSync(localPath, file.buffer);
+
+            const url = `/images/${fileName}`;
+            console.log(`[STORAGE] ✅ Gambar disimpan lokal: ${localPath}`);
+            return res.json({ ok: true, url });
+        } catch (fsErr) {
+            console.warn('[STORAGE] Filesystem write failed (Vercel/Read-only), fallback to base64 Data URL:', fsErr.message);
+            const mimeType = file.mimetype || 'image/jpeg';
+            const base64Url = `data:${mimeType};base64,${file.buffer.toString('base64')}`;
+            return res.json({ ok: true, url: base64Url });
         }
-
-        const localPath = path.join(imagesDir, fileName);
-        fs.writeFileSync(localPath, file.buffer);
-
-        const url = `/images/${fileName}`;
-        console.log(`[STORAGE] ✅ Gambar disimpan lokal: ${localPath}`);
-        return res.json({ ok: true, url });
     } catch (e) {
         console.error('POST /api/upload-image error:', e.message);
         return res.status(500).json({ error: e.message });
     }
 });
+
 // ─── API: Upload School Logo ──────────────────────────────────────────────────
 app.post('/api/upload-logo', upload.single('logo'), async (req, res) => {
     try {
@@ -1269,38 +1277,43 @@ app.post('/api/upload-logo', upload.single('logo'), async (req, res) => {
         const file = req.file;
         const rawFileName = file.originalname || 'logo.png';
         const fileExt = path.extname(rawFileName) || '.png';
+        const mimeType = file.mimetype || (fileExt === '.png' ? 'image/png' : 'image/jpeg');
 
-        // Simpan sebagai school_logo (dengan timestamp untuk cache-busting)
-        const logoFileName = `school_logo${fileExt}`;
-        const logoPath = path.join(rootPath, logoFileName);
-        const legacyLogoPath = path.join(rootPath, 'logo.png');
+        let logoUrl = '';
+        let logoUrlBase = '';
 
-        // Simpan versi timestamped
-        fs.writeFileSync(logoPath, file.buffer);
-
-        // Simpan/Timpa logo.png (branding utama)
         try {
-            fs.writeFileSync(legacyLogoPath, file.buffer);
-            console.log(`[LOGO] ✅ logo.png overwritten at: ${legacyLogoPath}`);
+            const logoFileName = `school_logo${fileExt}`;
+            const logoPath = path.join(rootPath, logoFileName);
+            const legacyLogoPath = path.join(rootPath, 'logo.png');
 
-            // Juga coba timpa di folder dist/APP jika ada (untuk build yang sudah jadi)
-            const distPath = path.join(baseDir, 'dist', 'APP', 'logo.png');
-            if (fs.existsSync(distPath)) {
-                fs.writeFileSync(distPath, file.buffer);
-                console.log(`[LOGO] ✅ logo.png overwritten in dist/APP: ${distPath}`);
+            fs.writeFileSync(logoPath, file.buffer);
+
+            try {
+                fs.writeFileSync(legacyLogoPath, file.buffer);
+                console.log(`[LOGO] ✅ logo.png overwritten at: ${legacyLogoPath}`);
+            } catch (err) {
+                console.warn('[LOGO] Gagal menimpa logo.png:', err.message);
             }
-        } catch (err) {
-            console.warn('[LOGO] Gagal menimpa logo.png:', err.message);
+
+            logoUrl = `/${logoFileName}?v=${Date.now()}`;
+            logoUrlBase = `/${logoFileName}`;
+            console.log(`[LOGO] ✅ Logo disimpan di: ${logoPath}. URL for UI: ${logoUrl}`);
+        } catch (fsErr) {
+            console.warn('[LOGO] Filesystem write failed (Vercel/Read-only), fallback to base64 Data URL:', fsErr.message);
+            const base64Data = `data:${mimeType};base64,${file.buffer.toString('base64')}`;
+            logoUrl = base64Data;
+            logoUrlBase = base64Data;
         }
 
-        const logoUrl = `/${logoFileName}?v=${Date.now()}`;
-        const logoUrlBase = `/${logoFileName}`;
-        console.log(`[LOGO] ✅ Logo disimpan di: ${logoPath}. URL for UI: ${logoUrl}`);
-
         // Simpan URL logo ke database
-        const currentSettings = sqlDb.getSchoolSettings() || {};
-        currentSettings.logoUrl = logoUrl;
-        sqlDb.setSchoolSettings(currentSettings);
+        try {
+            const currentSettings = (await sqlDb.getSchoolSettings()) || {};
+            currentSettings.logoUrl = logoUrl;
+            await sqlDb.setSchoolSettings(currentSettings);
+        } catch (dbErr) {
+            console.warn('[LOGO] Failed to update school logo in DB:', dbErr.message);
+        }
 
         return res.json({ ok: true, url: logoUrl, urlBase: logoUrlBase });
     } catch (e) {
