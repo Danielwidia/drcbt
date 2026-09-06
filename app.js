@@ -1649,6 +1649,7 @@ async function init() {
             if (teacherDash) teacherDash.classList.remove('hidden');
 
             // Auto-load core data for admin
+            await ensureDataLoaded('students');
             await ensureDataLoaded('questions');
             await ensureDataLoaded('results');
 
@@ -1687,6 +1688,7 @@ async function init() {
             if (teacherDash) teacherDash.classList.remove('hidden');
 
             // Auto-load core data for teacher
+            await ensureDataLoaded('students');
             await ensureDataLoaded('questions');
             await ensureDataLoaded('results');
 

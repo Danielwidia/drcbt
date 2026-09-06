@@ -59,9 +59,45 @@ async function getFullDbFromSupabase() {
 
 async function saveFullDbToSupabase(dbObj) {
     const sb = getSupabase();
-    localCache = dbObj;
+    
+    // Safety: Fetch existing database state to prevent unsupplied lazy-loaded collections from being overwritten
+    let current = {};
+    try {
+        const { data } = await sb.from('cbt_database').select('data').eq('id', 1).maybeSingle();
+        if (data && data.data && typeof data.data === 'object') {
+            current = data.data;
+        }
+    } catch (e) {
+        console.warn('[Supabase] Warning fetching current DB state before save:', e.message);
+    }
+
+    const merged = { ...current, ...dbObj };
+
+    // Defensive check: If current has collections and dbObj omitted them or passed empty/invalid data, preserve current
+    if (Array.isArray(current.students) && current.students.length > 0) {
+        if (!Array.isArray(dbObj.students) || dbObj.students.length === 0) {
+            merged.students = current.students;
+        }
+    }
+    if (Array.isArray(current.questions) && current.questions.length > 0) {
+        if (!Array.isArray(dbObj.questions) || dbObj.questions.length === 0) {
+            merged.questions = current.questions;
+        }
+    }
+    if (Array.isArray(current.subjects) && current.subjects.length > 0) {
+        if (!Array.isArray(dbObj.subjects) || dbObj.subjects.length === 0) {
+            merged.subjects = current.subjects;
+        }
+    }
+    if (Array.isArray(current.rombels) && current.rombels.length > 0) {
+        if (!Array.isArray(dbObj.rombels) || dbObj.rombels.length === 0) {
+            merged.rombels = current.rombels;
+        }
+    }
+
+    localCache = merged;
     cacheTime = Date.now();
-    const { error } = await sb.from('cbt_database').upsert({ id: 1, data: dbObj, updated_at: new Date() });
+    const { error } = await sb.from('cbt_database').upsert({ id: 1, data: merged, updated_at: new Date() });
     if (error) {
         console.error('[Supabase] saveFullDbToSupabase error:', error.message);
         throw error;
