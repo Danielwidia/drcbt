@@ -16,6 +16,11 @@ function log(c, m) { console.log(`${c}${m}${RESET}`); }
 
 const ROOT = path.join(__dirname, '..');
 
+if (process.env.VERCEL) {
+    log(GREEN, '⚡ Terdeteksi environment Vercel. Melewati pembuatan installer Windows .exe.');
+    process.exit(0);
+}
+
 // ════════════════════════════════════════════════════════════════════════
 //  MAIN BUILD FLOW
 // ════════════════════════════════════════════════════════════════════════
