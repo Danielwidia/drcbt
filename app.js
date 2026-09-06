@@ -1922,9 +1922,10 @@ async function save(options = {}) {
     while (retries > 0 && !serverSaveSuccess) {
         try {
             // PROTEKSI DATA: Jangan kirim koleksi besar jika belum dimuat (agar tidak menimpa dengan array kosong)
+            // CATATAN: students SELALU dikirim karena ini data master penting (bukan koleksi besar)
             const payloadToSync = { ...db };
             if (!loadedCollections.questions) delete payloadToSync.questions;
-            if (!loadedCollections.students) delete payloadToSync.students;
+            // students selalu disertakan — hapus baris: if (!loadedCollections.students) delete payloadToSync.students;
             if (!loadedCollections.results) delete payloadToSync.results;
 
             const jsonBody = JSON.stringify(payloadToSync);
