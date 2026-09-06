@@ -941,7 +941,9 @@ function sendStaticFile(res, fileName) {
         path.join(rootPath, fileName),
         path.join(process.cwd(), fileName),
         path.join(__dirname, fileName),
-        path.join(__dirname, '..', fileName)
+        path.join(__dirname, '..', fileName),
+        path.resolve(__dirname, '..', fileName),
+        path.resolve(__dirname, fileName)
     ];
 
     for (const p of candidatePaths) {
@@ -949,6 +951,7 @@ function sendStaticFile(res, fileName) {
             return res.sendFile(p);
         }
     }
+    console.error(`[Static] File ${fileName} not found in candidate paths:`, candidatePaths);
     return res.status(404).send(`File ${fileName} not found`);
 }
 
