@@ -252,7 +252,7 @@ async function extractTextFromImage(base64Data, mimeType) {
         return "[Gambar diunggah, tapi API Key Gemini belum dikonfigurasi untuk membaca isinya]";
     }
 
-    const models = ['gemini-3.5-pro', 'gemini-3.5-flash', 'gemini-3.1-flash', 'gemini-3.1-flash-lite', 'gemini-3.0-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+    const models = ['gemini-3.7-flash', 'gemini-3.7-pro', 'gemini-3.6-flash', 'gemini-3.6-pro', 'gemini-3.5-pro', 'gemini-3.5-flash', 'gemini-3.1-flash', 'gemini-3.1-flash-lite', 'gemini-3.0-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
     const prompt = "Ini adalah foto atau scan dokumen kisi-kisi / soal ujian. Tolong baca dan ekstrak SELURUH teks yang terlihat dalam gambar ini secara akurat. Jika ada tabel, pertahankan strukturnya. Jangan tambahkan komentar, langsung tulis teks yang ada di gambar saja.";
 
     for (const model of models) {
@@ -1742,7 +1742,7 @@ async function discoverAllAPIKeys(provider, teacherId = null) {
     }
 
     // From Teacher Profiles
-    db.students.forEach(s => {
+    (db.students || []).forEach(s => {
         if (s.role === 'teacher' && Array.isArray(s.apiKeys)) {
             const normalized = normalizeTeacherApiKeysArray(s.apiKeys);
             normalized.forEach(entry => {
@@ -1897,6 +1897,14 @@ async function callGeminiAI(prompt, teacherId = null) {
 
     // Super-charged model list for maximum resilience (including next-gen models)
     let models = [
+        { name: 'gemini-3.7-flash', version: 'v1' },
+        { name: 'gemini-3.7-pro', version: 'v1' },
+        { name: 'gemini-3.7-flash', version: 'v1beta' },
+        { name: 'gemini-3.7-pro', version: 'v1beta' },
+        { name: 'gemini-3.6-flash', version: 'v1' },
+        { name: 'gemini-3.6-pro', version: 'v1' },
+        { name: 'gemini-3.6-flash', version: 'v1beta' },
+        { name: 'gemini-3.6-pro', version: 'v1beta' },
         { name: 'gemini-3.5-flash', version: 'v1' },
         { name: 'gemini-3.5-pro', version: 'v1' },
         { name: 'gemini-3.5-flash', version: 'v1beta' },
@@ -2087,6 +2095,10 @@ async function callOpenRouterAI(prompt, teacherId = null) {
     if (keys.length === 0) throw new Error('API Key OpenRouter tidak ditemukan atau kuota habis di semua sumber.');
 
     const models = [
+        'google/gemini-3.7-pro',
+        'google/gemini-3.7-flash',
+        'google/gemini-3.6-pro',
+        'google/gemini-3.6-flash',
         'google/gemini-3.5-pro',
         'google/gemini-3.5-flash',
         'google/gemini-3.1-pro-preview',
@@ -2950,7 +2962,7 @@ DILARANG memberikan kalimat pembuka atau penutup di luar tag HTML. DILARANG meng
                     if (parsedQuestions && parsedQuestions.length > 0) {
                         for (const q of parsedQuestions) {
                             try {
-                                sqlDb.addQuestion(q);
+                                await sqlDb.addQuestion(q);
                                 addedCount++;
                             } catch (err) {
                                 console.error('[AI Bank Soal] Failed to add individual question:', err.message);
@@ -2993,7 +3005,7 @@ DILARANG memberikan kalimat pembuka atau penutup di luar tag HTML. DILARANG meng
         });
     } catch (e) {
         console.error('[/api/generate-admin-doc] Fatal error:', e.message);
-        return res.status(500).json({ error: e.message });
+        return res.status(500).json({ ok: false, error: e.message, message: e.message });
     }
 });
 
