@@ -1170,7 +1170,7 @@ app.post('/api/school-settings', async (req, res) => {
 // ─── API: System Config ───────────────────────────────────────────────────────
 app.get('/api/admin/config/:key', async (req, res) => {
     try {
-        const value = sqlDb.getConfig(req.params.key);
+        const value = await sqlDb.getConfig(req.params.key);
         res.json({ ok: true, key: req.params.key, value });
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
@@ -1180,7 +1180,7 @@ app.get('/api/admin/config/:key', async (req, res) => {
 app.post('/api/admin/config', async (req, res) => {
     try {
         const { key, value } = req.body;
-        sqlDb.setConfig(key, value);
+        await sqlDb.setConfig(key, value);
         res.json({ ok: true });
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
@@ -1215,8 +1215,8 @@ app.get('/api/questions', async (req, res) => {
             limit: parseInt(req.query.limit) || 50,
             offset: parseInt(req.query.offset) || 0
         };
-        const items = sqlDb.getQuestions(options);
-        const total = sqlDb.getQuestionsCount(options);
+        const items = await sqlDb.getQuestions(options);
+        const total = await sqlDb.getQuestionsCount(options);
         return res.json({ items, total, limit: options.limit, offset: options.offset });
     } catch (e) {
         console.error('GET /api/questions error:', e.message);
@@ -1228,7 +1228,7 @@ app.get('/api/questions', async (req, res) => {
 app.get('/api/students', async (req, res) => {
     try {
         // For simplicity, returning all students for now, but lazy-loaded from readDB
-        const students = sqlDb.getAllStudents();
+        const students = await sqlDb.getAllStudents();
         return res.json(students);
     } catch (e) {
         console.error('GET /api/students error:', e.message);
@@ -1421,7 +1421,7 @@ app.delete('/api/logs', async (req, res) => {
 app.get('/api/grades', async (req, res) => {
     try {
         const { mapel, rombel } = req.query;
-        const grades = sqlDb.getGrades(mapel || null, rombel || null);
+        const grades = await sqlDb.getGrades(mapel || null, rombel || null);
         res.json(grades);
     } catch (e) {
         console.error('GET /api/grades error:', e.message);
@@ -1628,7 +1628,7 @@ app.post('/api/import-word', upload.single('file'), async (req, res) => {
 app.get('/api/logs', async (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 20;
-        const logs = sqlDb.getLogs(limit);
+        const logs = await sqlDb.getLogs(limit);
         res.json({ ok: true, items: logs });
     } catch (e) {
         console.error('GET /api/logs error:', e.message);
@@ -1893,7 +1893,7 @@ async function callGeminiAI(prompt, teacherId = null) {
     if (keys.length === 0) throw new Error('API Key Google/Gemini tidak ditemukan atau kuota habis di semua sumber.');
 
     // Check if user has a preferred model
-    const preferredModel = sqlDb.getConfig('gemini_model_preference') || 'auto';
+    const preferredModel = (await sqlDb.getConfig('gemini_model_preference')) || 'auto';
 
     // Super-charged model list for maximum resilience (including next-gen models)
     let models = [
@@ -4008,28 +4008,28 @@ app.post('/api/quizz/join', (req, res) => {
     }
 });
 
-app.get('/api/quizz/participants', (req, res) => {
+app.get('/api/quizz/participants', async (req, res) => {
     const { mapel, rombel } = req.query;
     try {
-        const participants = sqlDb.getQuizzParticipants(mapel, rombel);
+        const participants = await sqlDb.getQuizzParticipants(mapel, rombel);
         res.json(participants);
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
 
-app.post('/api/quizz/status', (req, res) => {
+app.post('/api/quizz/status', async (req, res) => {
     const { mapel, rombel, status } = req.body;
     try {
-        sqlDb.setQuizzStatus(mapel, rombel, status);
+        await sqlDb.setQuizzStatus(mapel, rombel, status);
         if (status === 'start') {
             try {
-                sqlDb.upsertQuizzRoom(mapel, rombel, 'start', 0, Date.now());
+                await sqlDb.upsertQuizzRoom(mapel, rombel, 'start', 0, Date.now());
                 console.log(`[QUIZZ_STATUS] Status set to START for ${mapel}/${rombel}`);
             } catch (e) { console.error("upsertQuizzRoom missing table error ignored."); }
         } else if (status === 'waiting') {
             try {
-                sqlDb.upsertQuizzRoom(mapel, rombel, 'waiting', 0, Date.now());
+                await sqlDb.upsertQuizzRoom(mapel, rombel, 'waiting', 0, Date.now());
                 console.log(`[QUIZZ_STATUS] Status set to WAITING for ${mapel}/${rombel} - room reset`);
             } catch (e) { console.error("upsertQuizzRoom missing table error ignored."); }
         }
@@ -4039,15 +4039,15 @@ app.post('/api/quizz/status', (req, res) => {
     }
 });
 
-app.get('/api/quizz/check-status', (req, res) => {
+app.get('/api/quizz/check-status', async (req, res) => {
     const { studentId, mapel, rombel } = req.query;
     try {
-        const participants = sqlDb.getQuizzParticipants(mapel, rombel);
+        const participants = await sqlDb.getQuizzParticipants(mapel, rombel);
         const me = participants.find(p => p.student_id === studentId);
 
         // If participant exists, update heartbeat
         if (me) {
-            sqlDb.upsertQuizzParticipant({
+            await sqlDb.upsertQuizzParticipant({
                 studentId,
                 studentName: me.student_name,
                 mapel,
@@ -4058,7 +4058,7 @@ app.get('/api/quizz/check-status', (req, res) => {
 
         let room;
         try {
-            room = sqlDb.getQuizzRoom(mapel, rombel);
+            room = await sqlDb.getQuizzRoom(mapel, rombel);
         } catch (e) {
             console.error("getQuizzRoom missing table error ignored.");
         }

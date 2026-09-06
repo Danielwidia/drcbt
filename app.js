@@ -1232,7 +1232,7 @@ async function ensureDataLoaded(type, force = false) {
             res = await fetch(getApiBaseUrl() + '/api/questions?limit=-1');
             if (res.ok) {
                 const data = await res.json();
-                db.questions = data.items || [];
+                db.questions = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
                 _hasLoadedFlags.questions = true;
             }
         } else if (type === 'students') {
@@ -1258,7 +1258,7 @@ async function ensureDataLoaded(type, force = false) {
             res = await fetch(getApiBaseUrl() + '/api/results?limit=-1');
             if (res.ok) {
                 const data = await res.json();
-                db.results = data.items || [];
+                db.results = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
                 _hasLoadedFlags.results = true;
             }
         }
@@ -3980,6 +3980,7 @@ function renderAdminPaketSoal() {
     const tbody = document.getElementById('paket-soal-table-body');
     if (!tbody) return;
 
+    if (!Array.isArray(db.questions)) db.questions = [];
     const paketData = {};
     db.questions.forEach(question => {
         const mapel = question.mapel || 'Unknown';
@@ -4323,7 +4324,8 @@ function renderRombelProgress() {
         students: (db.students || []).filter(s => s.role !== 'admin').length
     });
 
-    const questionsByRombel = (db.questions || []).reduce((acc, q) => {
+    const questionsList = Array.isArray(db.questions) ? db.questions : [];
+    const questionsByRombel = questionsList.reduce((acc, q) => {
         if (!q.rombel || !q.mapel) return acc;
         if (!acc[q.rombel]) acc[q.rombel] = new Set();
         acc[q.rombel].add(q.mapel);
