@@ -5,7 +5,14 @@
   ],
   "functions": {
     "api/index.js": {
-      "includeFiles": "{*.html,*.png,*.css,*.ico,app.js,images/**}",
+      "includeFiles": [
+        "*.html",
+        "*.png",
+        "*.css",
+        "*.ico",
+        "app.js",
+        "images/**"
+      ],
       "maxDuration": 300
     }
   }

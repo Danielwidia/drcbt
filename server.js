@@ -936,24 +936,35 @@ async function insertResultSingle(resultObj) {
 }
 
 // ─── Static Files (Manual Fallbacks) ──────────────────────────────────────────
-app.get('/', (req, res) => res.sendFile(path.join(rootPath, 'index.html')));
-app.get('/administrasi_guru.html', (req, res) => res.sendFile(path.join(rootPath, 'administrasi_guru.html')));
+function sendStaticFile(res, fileName) {
+    const candidatePaths = [
+        path.join(rootPath, fileName),
+        path.join(process.cwd(), fileName),
+        path.join(__dirname, fileName),
+        path.join(__dirname, '..', fileName)
+    ];
+
+    for (const p of candidatePaths) {
+        if (fs.existsSync(p)) {
+            return res.sendFile(p);
+        }
+    }
+    return res.status(404).send(`File ${fileName} not found`);
+}
+
+app.get('/', (req, res) => sendStaticFile(res, 'index.html'));
+app.get('/administrasi_guru.html', (req, res) => sendStaticFile(res, 'administrasi_guru.html'));
 
 // Specific route for favicon to avoid SPA catch-all
 app.get('/favicon.ico', (req, res) => {
-    const icoPath = path.join(rootPath, 'favicon.ico');
-    if (fs.existsSync(icoPath)) {
-        res.sendFile(icoPath);
-    } else {
-        res.sendFile(path.join(rootPath, 'logo.png'));
-    }
+    sendStaticFile(res, 'favicon.ico');
 });
 
 // Catch-all for SPA navigation
 app.get('*', (req, res, next) => {
     if (req.url.startsWith('/api')) return next();
     if (req.url.includes('.')) return next();
-    res.sendFile(path.join(rootPath, 'index.html'));
+    sendStaticFile(res, 'index.html');
 });
 
 // ─── Health Endpoint ──────────────────────────────────────────────────────────
