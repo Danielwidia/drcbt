@@ -1154,15 +1154,25 @@ const loadedCollections = {
 
 function normalizeDb(d, existing = {}) {
     if (!d || typeof d !== 'object') d = {};
-    const students = Array.isArray(d.students) ? d.students : (existing.students || []);
-    const normalizedStudents = Array.isArray(students) ? students.slice() : [];
+
+    // PRIORITY: If server sent students data (d.students), use it directly — do NOT overwrite with local cache.
+    // Only fallback to local cache (existing.students) if server sent nothing (undefined/null).
+    let normalizedStudents;
+    if (Array.isArray(d.students) && d.students.length > 0) {
+        // Server has data → always trust server
+        normalizedStudents = d.students.slice();
+    } else if (d.students === undefined || d.students === null) {
+        // Server did not include students field → use local cache
+        normalizedStudents = Array.isArray(existing.students) ? existing.students.slice() : [];
+    } else {
+        // Server explicitly sent empty array → use local cache as fallback
+        normalizedStudents = Array.isArray(existing.students) && existing.students.length > 0
+            ? existing.students.slice()
+            : [];
+    }
 
     if (normalizedStudents.length === 0) {
-        if (Array.isArray(existing.students) && existing.students.length > 0) {
-            normalizedStudents.push(...existing.students);
-        } else {
-            normalizedStudents.push({ id: 'ADM', password: 'admin321', name: 'Administrator', role: 'admin' });
-        }
+        normalizedStudents.push({ id: 'ADM', password: 'admin321', name: 'Administrator', role: 'admin' });
     }
     if (!normalizedStudents.some(s => s.role === 'admin')) {
         normalizedStudents.unshift({ id: 'ADM', password: 'admin321', name: 'Administrator', role: 'admin' });

@@ -1196,6 +1196,19 @@ app.get('/api/db', async (req, res) => {
             // Ensure array properties exist for frontend compatibility
             if (data.questions === undefined) data.questions = [];
             if (data.results === undefined) data.results = [];
+
+            // CRITICAL: Always include students from Supabase so that any browser
+            // (even without local cache / IndexedDB) can get the latest student accounts.
+            // Without this, new browsers fall back to IndexedDB which is empty.
+            if (!Array.isArray(data.students) || data.students.length === 0) {
+                try {
+                    data.students = await sqlDb.getAllStudents();
+                } catch (e2) {
+                    console.warn('[GET /api/db] Could not load students fallback:', e2.message);
+                    data.students = [];
+                }
+            }
+
             return res.json(data);
         }
         return res.status(404).json({ error: 'Database not found' });
