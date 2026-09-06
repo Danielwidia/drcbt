@@ -14,6 +14,10 @@ try {
     fs.readFileSync(path.join(__dirname, '../logo.png'));
     fs.readFileSync(path.join(__dirname, '../school_logo.png'));
     fs.readFileSync(path.join(__dirname, '../favicon.ico'));
+    fs.readFileSync(path.join(__dirname, '../public/index.html'));
+    fs.readFileSync(path.join(__dirname, '../public/app.js'));
+    fs.readFileSync(path.join(__dirname, '../public/style.css'));
+    fs.readFileSync(path.join(__dirname, '../public/logo.png'));
 } catch (e) {}
 
 const app = require('../server');
