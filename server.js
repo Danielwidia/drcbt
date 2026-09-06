@@ -938,7 +938,9 @@ async function insertResultSingle(resultObj) {
 // ─── Static Files (Manual Fallbacks) ──────────────────────────────────────────
 function sendStaticFile(res, fileName) {
     const candidatePaths = [
+        path.join(rootPath, 'public', fileName),
         path.join(rootPath, fileName),
+        path.join(process.cwd(), 'public', fileName),
         path.join(process.cwd(), fileName),
         path.join(__dirname, fileName),
         path.join(__dirname, '..', fileName),
