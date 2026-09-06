@@ -1217,18 +1217,24 @@ async function ensureDataLoaded(type, force = false) {
 
     // If not forced, check flags and existing data
     if (!force) {
-        if (_hasLoadedFlags[type]) return;
+        if (_hasLoadedFlags[type]) {
+            if (loadedCollections.hasOwnProperty(type)) loadedCollections[type] = true;
+            return;
+        }
 
         if (type === 'questions' && db.questions.length > 0) {
             _hasLoadedFlags.questions = true;
+            loadedCollections.questions = true;
             return;
         }
         if (type === 'students' && db.students.length > 1) { // ADM is always there
             _hasLoadedFlags.students = true;
+            loadedCollections.students = true;
             return;
         }
         if (type === 'results' && db.results.length > 0) {
             _hasLoadedFlags.results = true;
+            loadedCollections.results = true;
             return;
         }
     }
@@ -3582,6 +3588,7 @@ function deleteSelectedTeacherQuestions() {
         return alert('Pilih soal yang ingin dihapus terlebih dahulu.');
     }
     if (!confirm(`Hapus ${selectedTeacherQuestions.size} soal terpilih?`)) return;
+    loadedCollections.questions = true;
     db.questions = db.questions.filter(q => !selectedTeacherQuestions.has(q));
     selectedTeacherQuestions.clear();
     save();
@@ -4119,6 +4126,7 @@ function openPaketSoalDetail(mapel, rombel) {
 
 function deletePaketSoal(mapel, rombel) {
     if (confirm(`Apakah Anda yakin ingin menghapus semua soal untuk Mapel ${mapel} dan Rombel ${rombel}?`)) {
+        loadedCollections.questions = true;
         db.questions = db.questions.filter(q => !(q.mapel === mapel && q.rombel === rombel));
         save();
         renderAdminPaketSoal();
@@ -5395,6 +5403,7 @@ async function renderAdminQuestions() {
 
 function deleteQuestion(idx) {
     if (confirm("Hapus soal?")) {
+        loadedCollections.questions = true;
         db.questions.splice(idx, 1);
         save();
         if (window.isTeacherMode || (currentSiswa && currentSiswa.role === 'teacher')) {
@@ -5438,6 +5447,7 @@ function deleteSelectedAdminQuestions() {
         return alert('Pilih soal yang ingin dihapus terlebih dahulu.');
     }
     if (!confirm(`Hapus ${selectedAdminQuestions.size} soal terpilih?`)) return;
+    loadedCollections.questions = true;
     db.questions = db.questions.filter(q => !selectedAdminQuestions.has(q));
     selectedAdminQuestions.clear();
     save();
@@ -5471,6 +5481,7 @@ function deleteFilteredQuestions() {
     }
 
     // Remove matching questions
+    loadedCollections.questions = true;
     db.questions = db.questions.filter(q =>
         !((fR === 'ALL' || q.rombel === fR) && (fM === 'ALL' || q.mapel === fM))
     );
@@ -5515,6 +5526,7 @@ function deleteTeacherFilteredQuestions() {
     if (!confirm(msg)) return;
 
     // Build a Set of references to delete
+    loadedCollections.questions = true;
     const deleteSet = new Set(toDelete);
     db.questions = db.questions.filter(q => !deleteSet.has(q));
 

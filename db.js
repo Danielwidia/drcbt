@@ -73,24 +73,25 @@ async function saveFullDbToSupabase(dbObj) {
 
     const merged = { ...current, ...dbObj };
 
-    // Defensive check: If current has collections and dbObj omitted them or passed empty/invalid data, preserve current
+    // Defensive check: If current has collections and dbObj omitted them (undefined/non-array), preserve current.
+    // Note: Do NOT overwrite with current if dbObj explicitly provided an array (even if empty, e.g. when all items are deleted).
     if (Array.isArray(current.students) && current.students.length > 0) {
-        if (!Array.isArray(dbObj.students) || dbObj.students.length === 0) {
+        if (!Array.isArray(dbObj.students)) {
             merged.students = current.students;
         }
     }
     if (Array.isArray(current.questions) && current.questions.length > 0) {
-        if (!Array.isArray(dbObj.questions) || dbObj.questions.length === 0) {
+        if (!Array.isArray(dbObj.questions)) {
             merged.questions = current.questions;
         }
     }
     if (Array.isArray(current.subjects) && current.subjects.length > 0) {
-        if (!Array.isArray(dbObj.subjects) || dbObj.subjects.length === 0) {
+        if (!Array.isArray(dbObj.subjects)) {
             merged.subjects = current.subjects;
         }
     }
     if (Array.isArray(current.rombels) && current.rombels.length > 0) {
-        if (!Array.isArray(dbObj.rombels) || dbObj.rombels.length === 0) {
+        if (!Array.isArray(dbObj.rombels)) {
             merged.rombels = current.rombels;
         }
     }
