@@ -1,11 +1,11 @@
 {
   "version": 2,
   "rewrites": [
-    { "source": "/api", "destination": "/server.js" },
-    { "source": "/api/(.*)", "destination": "/server.js" }
+    { "source": "/api", "destination": "/api/index.js" },
+    { "source": "/api/(.*)", "destination": "/api/index.js" }
   ],
   "functions": {
-    "server.js": {
+    "api/index.js": {
       "includeFiles": "{*.html,*.png,app.js,style.css,wordParser.js,db.js,*.ico}",
       "maxDuration": 300
     }
