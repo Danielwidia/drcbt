@@ -5807,6 +5807,54 @@ function moveQuestionDown(idx) {
     }
 }
 
+function shuffleQuestionOptionsInBank(q) {
+    if (!q || !Array.isArray(q.options) || q.options.length <= 1) return;
+    const qType = q.type || 'single';
+
+    if (qType === 'single') {
+        const origOptions = [...q.options];
+        const origCorrectIndex = typeof q.correct === 'number' ? q.correct : parseInt(q.correct);
+        const indices = origOptions.map((_, i) => i);
+        const shuffledIndices = shuffleArray(indices);
+
+        const newOptions = shuffledIndices.map(i => origOptions[i]);
+        let newCorrect = 0;
+        if (!isNaN(origCorrectIndex) && origCorrectIndex >= 0 && origCorrectIndex < origOptions.length) {
+            newCorrect = shuffledIndices.indexOf(origCorrectIndex);
+        }
+
+        q.options = newOptions;
+        q.correct = newCorrect;
+
+    } else if (qType === 'multiple') {
+        const origOptions = [...q.options];
+        const origCorrectArr = Array.isArray(q.correct) ? q.correct : [];
+        const indices = origOptions.map((_, i) => i);
+        const shuffledIndices = shuffleArray(indices);
+
+        const newOptions = shuffledIndices.map(i => origOptions[i]);
+        const newCorrect = origCorrectArr
+            .map(oldIdx => shuffledIndices.indexOf(oldIdx))
+            .filter(newIdx => newIdx !== -1)
+            .sort((a, b) => a - b);
+
+        q.options = newOptions;
+        q.correct = newCorrect;
+
+    } else if (qType === 'tf') {
+        const origOptions = [...q.options];
+        const origCorrectArr = Array.isArray(q.correct) ? q.correct : [];
+        const indices = origOptions.map((_, i) => i);
+        const shuffledIndices = shuffleArray(indices);
+
+        const newOptions = shuffledIndices.map(i => origOptions[i]);
+        const newCorrect = shuffledIndices.map(oldIdx => origCorrectArr[oldIdx] ?? false);
+
+        q.options = newOptions;
+        q.correct = newCorrect;
+    }
+}
+
 function shuffleQuestions() {
     let questionsToShuffleIndices = [];
     let fM = '';
@@ -5846,20 +5894,20 @@ function shuffleQuestions() {
         return;
     }
 
-    let msg = "Acak urutan semua soal?";
+    let msg = "Acak urutan semua soal dan opsi jawabannya?";
     if (isTeacher) {
         const mapelLabel = fM ? fM : 'Semua Mapel';
         const rombelLabel = fR ? fR : 'Semua Rombel';
         if (fM || fR) {
-            msg = `Acak urutan ${questionsToShuffleIndices.length} soal dengan filter:\nMapel: ${mapelLabel}\nRombel: ${rombelLabel}?`;
+            msg = `Acak urutan ${questionsToShuffleIndices.length} soal beserta opsi jawabannya dengan filter:\nMapel: ${mapelLabel}\nRombel: ${rombelLabel}?`;
         } else {
-            msg = `Acak urutan ${questionsToShuffleIndices.length} soal milik Anda?`;
+            msg = `Acak urutan ${questionsToShuffleIndices.length} soal beserta opsi jawabannya milik Anda?`;
         }
     } else {
         if (fR !== 'ALL' || fM !== 'ALL') {
             const rombelLabel = fR === 'ALL' ? 'Semua Rombel' : fR;
             const mapelLabel = fM === 'ALL' ? 'Semua Mapel' : fM;
-            msg = `Acak urutan ${questionsToShuffleIndices.length} soal dengan filter:\nRombel: ${rombelLabel}\nMapel: ${mapelLabel}?`;
+            msg = `Acak urutan ${questionsToShuffleIndices.length} soal beserta opsi jawabannya dengan filter:\nRombel: ${rombelLabel}\nMapel: ${mapelLabel}?`;
         }
     }
 
@@ -5873,6 +5921,9 @@ function shuffleQuestions() {
             [filteredQuestions[i], filteredQuestions[j]] = [filteredQuestions[j], filteredQuestions[i]];
         }
 
+        // Also shuffle options for each question
+        filteredQuestions.forEach(q => shuffleQuestionOptionsInBank(q));
+
         // Put them back at their original indices (so non-filtered stay in place)
         for (let i = 0; i < questionsToShuffleIndices.length; i++) {
             db.questions[questionsToShuffleIndices[i]] = filteredQuestions[i];
@@ -5884,6 +5935,10 @@ function shuffleQuestions() {
             if (typeof renderTeacherQuestions === 'function') renderTeacherQuestions();
         } else {
             if (typeof renderAdminQuestions === 'function') renderAdminQuestions();
+        }
+
+        if (typeof showToast === 'function') {
+            showToast('Berhasil mengacak urutan soal dan opsi jawaban!', 'success');
         }
     }
 }
@@ -8000,10 +8055,34 @@ async function startExam(mapel) {
     }
 
     console.log('[startExam] No saved progress found, starting fresh exam for mapel:', mapel);
-    const normalizedQuestions = qs.map(q => ({
-        ...q,
-        type: q.type || 'single'  // Default ke 'single' jika tidak ada type
-    }));
+    const shuffledQs = shuffleArray(qs);
+    const normalizedQuestions = shuffledQs.map(q => {
+        const studentQ = {
+            ...q,
+            type: q.type || 'single'
+        };
+
+        // Randomize option choices per student for questions with multiple options
+        if (Array.isArray(q.options) && q.options.length > 1) {
+            const indices = q.options.map((_, i) => i);
+            const shuffledOptionIndices = shuffleArray(indices);
+            studentQ.options = shuffledOptionIndices.map(i => q.options[i]);
+            studentQ._shuffledOptionIndices = shuffledOptionIndices;
+        }
+
+        // Initialize matching shuffle indices if matching type
+        if (studentQ.type === 'matching') {
+            if (Array.isArray(q.answers)) {
+                studentQ._shuffledAnswers = shuffleArray(q.answers);
+            }
+            if (Array.isArray(q.questions)) {
+                const indices = q.questions.map((_, i) => i);
+                studentQ._shuffledQuestionIndices = shuffleArray(indices);
+            }
+        }
+
+        return studentQ;
+    });
 
     // initialise answers based on question type (multiple => [], text => "", single => null)
     const answers = normalizedQuestions.map(q => {
@@ -8444,7 +8523,8 @@ async function _updateLiveExamStatusInternal(force = false) {
                 const studentVal = ansArr[j];
                 if (studentVal !== null && studentVal !== undefined) {
                     liveAnsweredItemsCount++;
-                    const corrVal = Array.isArray(q.correct) ? q.correct[j] : false;
+                    const origJ = getOriginalOptionIndex(q, j);
+                    const corrVal = Array.isArray(q.correct) ? q.correct[origJ] : false;
                     if (studentVal === corrVal) liveCorrectCount++;
                 }
             });
@@ -8458,7 +8538,8 @@ async function _updateLiveExamStatusInternal(force = false) {
                 // For simplicity, we count it as "answered" if at least one checkbox is ticked
                 // But we only count "correct" for the fraction they got right
                 liveAnsweredItemsCount += totalCorrectOptions;
-                const selectedCorrect = ansArr.filter(idx => corr.includes(idx)).length;
+                const origAnsArr = ansArr.map(dIdx => getOriginalOptionIndex(q, dIdx));
+                const selectedCorrect = origAnsArr.filter(idx => corr.includes(idx)).length;
                 liveCorrectCount += selectedCorrect;
             }
         } else if (qType === 'matching') {
@@ -8490,7 +8571,8 @@ async function _updateLiveExamStatusInternal(force = false) {
                         const corrText = (typeof q.correct === 'string' ? q.correct : '').trim().toLowerCase();
                         isCorrect = typeof ans === 'string' && ans.trim().toLowerCase() === corrText;
                     } else {
-                        isCorrect = ans === q.correct;
+                        const origAns = getOriginalOptionIndex(q, ans);
+                        isCorrect = origAns === q.correct;
                     }
                 }
                 if (isCorrect) liveCorrectCount++;
@@ -8874,6 +8956,14 @@ function shuffleArray(array) {
     return arr;
 }
 
+function getOriginalOptionIndex(q, displayIdx) {
+    if (displayIdx === null || displayIdx === undefined) return null;
+    if (q && Array.isArray(q._shuffledOptionIndices) && q._shuffledOptionIndices[displayIdx] !== undefined) {
+        return q._shuffledOptionIndices[displayIdx];
+    }
+    return displayIdx;
+}
+
 function startTimer(sec) {
     clearInterval(examData.timer);
     examSecondsRemaining = sec;
@@ -9039,7 +9129,8 @@ async function submitExam() {
             const ansArr = Array.isArray(ans) ? ans : [];
             q.options.forEach((stmt, j) => {
                 totalItems++;
-                const corrVal = Array.isArray(q.correct) ? q.correct[j] : false;
+                const origJ = getOriginalOptionIndex(q, j);
+                const corrVal = Array.isArray(q.correct) ? q.correct[origJ] : false;
                 const studentVal = ansArr[j];
                 if (studentVal === corrVal) {
                     correctCount++;
@@ -9049,7 +9140,8 @@ async function submitExam() {
             // per-option scoring untuk pilihan ganda kompleks
             const corr = Array.isArray(q.correct) ? q.correct : [];
             const ansArr = Array.isArray(ans) ? ans : [];
-            const selectedCorrect = ansArr.filter(idx => corr.includes(idx)).length;
+            const origAnsArr = ansArr.map(dIdx => getOriginalOptionIndex(q, dIdx));
+            const selectedCorrect = origAnsArr.filter(idx => corr.includes(idx)).length;
 
             const totalCorrectOptions = corr.length > 0 ? corr.length : 1;
             totalItems += totalCorrectOptions;
@@ -9084,7 +9176,8 @@ async function submitExam() {
                 correct = typeof ans === 'string' && ans.trim().toLowerCase() === corrText;
             } else {
                 // Single choice (default)
-                correct = ans === q.correct;
+                const origAns = getOriginalOptionIndex(q, ans);
+                correct = origAns === q.correct;
             }
 
             if (correct) correctCount++;
@@ -9098,26 +9191,51 @@ async function submitExam() {
     const score = totalItems ? ((correctCount / totalItems) * 100).toFixed(1) : 0;
 
     // Save essential question data (without images) so teachers/admins can view answers.
-    // Images are stripped to keep payload small and prevent 500 errors.
+    // Restores original option order if options were shuffled.
     const savedQuestions = examData.questions.map(q => {
         const essential = {
             text: q.text || '',
             type: q.type || 'single',
             correct: q.correct,
         };
-        if (Array.isArray(q.options)) essential.options = q.options;
+        if (Array.isArray(q.options)) {
+            if (Array.isArray(q._shuffledOptionIndices)) {
+                const origOptions = [];
+                q._shuffledOptionIndices.forEach((origIdx, displayIdx) => {
+                    origOptions[origIdx] = q.options[displayIdx];
+                });
+                essential.options = origOptions;
+            } else {
+                essential.options = q.options;
+            }
+        }
         if (Array.isArray(q.questions)) essential.questions = q.questions; // for matching
         if (Array.isArray(q.answers)) essential.answers = q.answers;       // for matching
         // intentionally omit q.images / q.image to keep payload small
         return essential;
     });
 
-    // Transform matching answers from indices to strings before saving
+    // Transform student display choices back to original option indices before saving
     const savedAnswers = examData.answers.map((ans, i) => {
         const q = examData.questions[i];
+        if (!q) return ans;
         if (q.type === 'matching' && Array.isArray(ans)) {
             const shuffled = q._shuffledAnswers || q.answers || [];
             return ans.map(ai => (ai !== null && ai !== undefined) ? shuffled[ai] : null);
+        }
+        if ((q.type === 'single' || !q.type) && typeof ans === 'number') {
+            return getOriginalOptionIndex(q, ans);
+        }
+        if (q.type === 'multiple' && Array.isArray(ans)) {
+            return ans.map(dIdx => getOriginalOptionIndex(q, dIdx));
+        }
+        if (q.type === 'tf' && Array.isArray(ans)) {
+            const origAns = [];
+            ans.forEach((val, dIdx) => {
+                const origJ = getOriginalOptionIndex(q, dIdx);
+                origAns[origJ] = val;
+            });
+            return origAns;
         }
         return ans;
     });
