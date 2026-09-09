@@ -3605,21 +3605,211 @@ function renderScheduleChecklist() {
     if (!container) return;
 
     const schedules = db.schedules || [];
-    const checklistHTML = db.rombels.map(rombel => {
-        return db.subjects.map(subject => {
-            const subjectName = getSubjectName(subject);
+    const rombels = db.rombels || [];
+    const subjects = db.subjects || [];
+
+    if (subjects.length === 0) {
+        container.innerHTML = `<div class="text-center py-8 text-slate-400"><i class="fas fa-book-open text-3xl mb-3 block"></i><p class="text-sm font-bold">Belum ada mata pelajaran terdaftar.</p></div>`;
+        return;
+    }
+    if (rombels.length === 0) {
+        container.innerHTML = `<div class="text-center py-8 text-slate-400"><i class="fas fa-users text-3xl mb-3 block"></i><p class="text-sm font-bold">Belum ada rombel terdaftar.</p></div>`;
+        return;
+    }
+
+    const html = subjects.map((subject, sIdx) => {
+        const subjectName = getSubjectName(subject);
+        const subjRombels = rombels.map(rombel => {
             const key = `${rombel}|${subjectName}`;
-            const isChecked = schedules.includes(key);
-            return `
-                        <label class="flex items-center p-4 bg-slate-50 rounded-xl cursor-pointer hover:bg-slate-100 transition-all border-2 ${isChecked ? 'border-purple-500 bg-purple-50' : 'border-slate-100'}">
-                            <input type="checkbox" class="schedule-checkbox" data-key="${key}" ${isChecked ? 'checked' : ''} />
-                            <span class="ml-3 font-bold text-slate-700">${rombel} - ${subjectName}</span>
-                        </label>
-                    `;
-        }).join('');
+            return { rombel, key, isChecked: schedules.includes(key) };
+        });
+        const checkedCount = subjRombels.filter(r => r.isChecked).length;
+        const allChecked = checkedCount === rombels.length;
+        const someChecked = checkedCount > 0 && !allChecked;
+
+        const badgeColor = checkedCount > 0
+            ? 'bg-purple-100 text-purple-700'
+            : 'bg-slate-100 text-slate-400';
+
+        const rombelItems = subjRombels.map(({ rombel, key, isChecked }) => `
+            <label class="schedule-rombel-label flex items-center gap-3 px-4 py-2.5 rounded-xl cursor-pointer transition-all hover:bg-purple-50 ${isChecked ? 'bg-purple-50 border border-purple-100' : 'bg-slate-50 border border-transparent'}">
+                <input type="checkbox"
+                    class="schedule-checkbox w-4 h-4 rounded accent-purple-600"
+                    data-key="${key}"
+                    data-subject="${subjectName}"
+                    ${isChecked ? 'checked' : ''}
+                    onchange="onScheduleRombelChange(this)"
+                />
+                <div class="flex-1">
+                    <span class="text-sm font-bold text-slate-700">${rombel}</span>
+                </div>
+                <span class="schedule-status-span text-[10px] font-bold ${isChecked ? 'text-purple-500' : 'text-slate-300'}">
+                    ${isChecked ? '<i class="fas fa-check"></i> Aktif' : 'Nonaktif'}
+                </span>
+            </label>
+        `).join('');
+
+        return `
+        <div class="schedule-subject-card border-2 rounded-2xl overflow-hidden transition-all ${
+            checkedCount > 0 ? 'border-purple-200' : 'border-slate-100'
+        }" data-subject-idx="${sIdx}">
+            <!-- Subject Header / Toggle Button -->
+            <button type="button"
+                class="schedule-subject-toggle w-full flex items-center gap-3 p-4 text-left hover:bg-slate-50 transition-all"
+                onclick="toggleScheduleSubjectCard(this)"
+                aria-expanded="false">
+                <div class="schedule-card-icon w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${
+                    checkedCount > 0 ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-500'
+                }">
+                    <i class="fas fa-book text-xs"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="font-black text-slate-800 leading-tight truncate">${subjectName}</div>
+                    <div class="schedule-card-desc text-[11px] text-slate-400 mt-0.5">${checkedCount} dari ${rombels.length} rombel aktif</div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="schedule-card-badge text-[10px] font-black px-2.5 py-1 rounded-full ${badgeColor}">
+                        ${checkedCount}/${rombels.length}
+                    </span>
+                    <i class="fas fa-chevron-down text-slate-300 text-xs transition-transform duration-200 schedule-chevron"></i>
+                </div>
+            </button>
+            <!-- Rombel Checklist (collapsed by default) -->
+            <div class="schedule-subject-panel hidden px-4 pb-4">
+                <!-- Pilih Semua toggle -->
+                <label class="flex items-center gap-3 px-4 py-2.5 rounded-xl cursor-pointer bg-purple-600/10 border border-purple-200 mb-2 hover:bg-purple-600/20 transition-all">
+                    <input type="checkbox"
+                        class="schedule-select-all-cb w-4 h-4 rounded accent-purple-600"
+                        data-subject="${subjectName}"
+                        ${allChecked ? 'checked' : ''}
+                        ${someChecked ? 'data-indeterminate="true"' : ''}
+                        onchange="onScheduleSelectAll(this)"
+                    />
+                    <span class="text-sm font-black text-purple-700">Pilih Semua Rombel</span>
+                </label>
+                <div class="space-y-1.5">
+                    ${rombelItems}
+                </div>
+            </div>
+        </div>`;
     }).join('');
 
-    container.innerHTML = checklistHTML;
+    container.innerHTML = html;
+
+    // Fix indeterminate state (cannot be set via HTML attribute)
+    container.querySelectorAll('.schedule-select-all-cb[data-indeterminate="true"]').forEach(cb => {
+        cb.indeterminate = true;
+    });
+}
+
+function toggleScheduleSubjectCard(btn) {
+    const card = btn.closest('.schedule-subject-card');
+    const panel = card.querySelector('.schedule-subject-panel');
+    const chevron = btn.querySelector('.schedule-chevron');
+    const expanded = btn.getAttribute('aria-expanded') === 'true';
+    if (expanded) {
+        panel.classList.add('hidden');
+        chevron.style.transform = 'rotate(0deg)';
+        btn.setAttribute('aria-expanded', 'false');
+    } else {
+        panel.classList.remove('hidden');
+        chevron.style.transform = 'rotate(180deg)';
+        btn.setAttribute('aria-expanded', 'true');
+    }
+}
+
+// Update visual style of a single rombel label row
+function _updateRombelLabelStyle(cb) {
+    const label = cb.closest('.schedule-rombel-label');
+    if (!label) return;
+    const statusSpan = label.querySelector('.schedule-status-span');
+    if (cb.checked) {
+        label.classList.remove('bg-slate-50', 'border-transparent');
+        label.classList.add('bg-purple-50', 'border', 'border-purple-100');
+        if (statusSpan) {
+            statusSpan.innerHTML = '<i class="fas fa-check"></i> Aktif';
+            statusSpan.className = 'schedule-status-span text-[10px] font-bold text-purple-500';
+        }
+    } else {
+        label.classList.remove('bg-purple-50', 'border-purple-100');
+        label.classList.add('bg-slate-50', 'border-transparent');
+        if (statusSpan) {
+            statusSpan.innerHTML = 'Nonaktif';
+            statusSpan.className = 'schedule-status-span text-[10px] font-bold text-slate-300';
+        }
+    }
+}
+
+// Update header badge, description, icon, and card border based on current checked state
+function _updateScheduleCardHeader(card) {
+    const panel = card.querySelector('.schedule-subject-panel');
+    if (!panel) return;
+    const rombelCbs = panel.querySelectorAll('.schedule-checkbox');
+    const selectAllCb = panel.querySelector('.schedule-select-all-cb');
+    const checkedCount = Array.from(rombelCbs).filter(c => c.checked).length;
+    const total = rombelCbs.length;
+
+    // Update select-all state
+    if (selectAllCb) {
+        selectAllCb.checked = checkedCount === total;
+        selectAllCb.indeterminate = checkedCount > 0 && checkedCount < total;
+    }
+
+    // Update badge
+    const badge = card.querySelector('.schedule-card-badge');
+    if (badge) {
+        badge.textContent = `${checkedCount}/${total}`;
+        badge.className = `schedule-card-badge text-[10px] font-black px-2.5 py-1 rounded-full ${
+            checkedCount > 0 ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-400'
+        }`;
+    }
+
+    // Update description text
+    const desc = card.querySelector('.schedule-card-desc');
+    if (desc) desc.textContent = `${checkedCount} dari ${total} rombel aktif`;
+
+    // Update icon color
+    const icon = card.querySelector('.schedule-card-icon');
+    if (icon) {
+        if (checkedCount > 0) {
+            icon.classList.remove('bg-slate-100', 'text-slate-500');
+            icon.classList.add('bg-purple-600', 'text-white');
+        } else {
+            icon.classList.remove('bg-purple-600', 'text-white');
+            icon.classList.add('bg-slate-100', 'text-slate-500');
+        }
+    }
+
+    // Update card border
+    if (checkedCount > 0) {
+        card.classList.remove('border-slate-100');
+        card.classList.add('border-purple-200');
+    } else {
+        card.classList.remove('border-purple-200');
+        card.classList.add('border-slate-100');
+    }
+}
+
+// Called when a single rombel checkbox changes
+function onScheduleRombelChange(cb) {
+    _updateRombelLabelStyle(cb);
+    const card = cb.closest('.schedule-subject-card');
+    if (card) _updateScheduleCardHeader(card);
+}
+
+// Called when "Pilih Semua" checkbox changes
+function onScheduleSelectAll(selectAllCb) {
+    const panel = selectAllCb.closest('.schedule-subject-panel');
+    if (!panel) return;
+    const card = panel.closest('.schedule-subject-card');
+    const rombelCbs = panel.querySelectorAll('.schedule-checkbox');
+    // Set all rombel checkboxes to match the select-all state
+    rombelCbs.forEach(cb => {
+        cb.checked = selectAllCb.checked;
+        _updateRombelLabelStyle(cb);
+    });
+    // Update header once after all are toggled
+    if (card) _updateScheduleCardHeader(card);
 }
 
 async function saveSchedules() {
