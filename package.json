@@ -19,7 +19,8 @@
     "setup:vercel": "node setup-vercel-env.js",
     "upload:github": "node upload-to-github.js",
     "export-rescue": "node rescue-db.js",
-    "check:syntax": "node -c db.js && node -c server.js"
+    "bundle": "node bundle.js",
+    "check:syntax": "node -c db.js && node -c server.js && node bundle.js"
   },
   "pkg": {
     "targets": [
