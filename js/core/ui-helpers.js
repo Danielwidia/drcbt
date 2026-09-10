@@ -355,4 +355,13 @@ function insertOptionSymbol(symbol, targetInputEl) {
 }
 window.insertOptionSymbol = insertOptionSymbol;
 
+function insertCustomOptionSymbol() {
+    const value = prompt('Masukkan simbol/kustom yang ingin disisipkan (contoh: xⁿ, a/b, 3/4, ∑, α, √, π, ≤):', 'xⁿ');
+    if (value === null) return;
+    const cleaned = value.trim();
+    if (!cleaned) return;
+    insertOptionSymbol(cleaned);
+}
+window.insertCustomOptionSymbol = insertCustomOptionSymbol;
+
 
