@@ -203,15 +203,29 @@
                 <div class="flex items-center gap-1 flex-wrap">
                     <button type="button" onclick="insertOptionSymbol('²')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Pangkat 2 (²)">x²</button>
                     <button type="button" onclick="insertOptionSymbol('³')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Pangkat 3 (³)">x³</button>
-                    <button type="button" onclick="insertOptionSymbol('₂')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Subscript 2 (₂)">x₂</button>
+                    <button type="button" onclick="insertOptionSymbol('xⁿ')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Pangkat umum (xⁿ)">xⁿ</button>
+                    <button type="button" onclick="insertOptionSymbol('xₙ')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Subscript umum (xₙ)">xₙ</button>
+                    <button type="button" onclick="insertOptionSymbol('a/b')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Pecahan umum (a/b)">a/b</button>
+                    <button type="button" onclick="insertOptionSymbol('3/4')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Pecahan 3/4">3/4</button>
                     <button type="button" onclick="insertOptionSymbol('√')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Akar (√)">√</button>
                     <button type="button" onclick="insertOptionSymbol('π')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Pi (π)">π</button>
-                    <button type="button" onclick="insertOptionSymbol('°C')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Derajat C (°C)">°C</button>
-                    <button type="button" onclick="insertOptionSymbol('±')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Plus Minus (±)">±</button>
-                    <button type="button" onclick="insertOptionSymbol('≠')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Tidak Sama (≠)">≠</button>
-                    <button type="button" onclick="insertOptionSymbol('≤')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Kurang dari sama (≤)"><ctrl42></button>
+                    <button type="button" onclick="insertOptionSymbol('∞')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Tak hingga (∞)">∞</button>
+                    <button type="button" onclick="insertOptionSymbol('±')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Plus minus (±)">±</button>
+                    <button type="button" onclick="insertOptionSymbol('≈')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Kira-kira (≈)">≈</button>
+                    <button type="button" onclick="insertOptionSymbol('≠')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Tidak sama (≠)">≠</button>
+                    <button type="button" onclick="insertOptionSymbol('≤')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Kurang dari sama (≤)">≤</button>
                     <button type="button" onclick="insertOptionSymbol('≥')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Lebih dari sama (≥)">≥</button>
-                    <button type="button" onclick="insertOptionSymbol('½')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Setengah (½)">½</button>
+                    <button type="button" onclick="insertOptionSymbol('∠')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Sudut (∠)">∠</button>
+                    <button type="button" onclick="insertOptionSymbol('∑')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Sigma (∑)">∑</button>
+                    <button type="button" onclick="insertOptionSymbol('∫')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Integral (∫)">∫</button>
+                    <button type="button" onclick="insertOptionSymbol('°C')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Derajat C (°C)">°C</button>
+                    <button type="button" onclick="insertOptionSymbol('α')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Alpha (α)">α</button>
+                    <button type="button" onclick="insertOptionSymbol('β')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Beta (β)">β</button>
+                    <button type="button" onclick="insertOptionSymbol('γ')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Gamma (γ)">γ</button>
+                    <button type="button" onclick="insertOptionSymbol('λ')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Lambda (λ)">λ</button>
+                    <button type="button" onclick="insertOptionSymbol('μ')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Mu (μ)">μ</button>
+                    <button type="button" onclick="insertOptionSymbol('ω')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Omega (ω)">ω</button>
+                    <button type="button" onclick="insertCustomOptionSymbol()" class="px-2 py-0.5 bg-sky-100 hover:bg-sky-600 text-sky-700 hover:text-white rounded text-xs font-black transition-colors" title="Masukkan simbol custom">Custom</button>
                 </div>
             </div>
             <div class="space-y-2 mb-6" id="q-opts-container">
@@ -1647,7 +1661,7 @@
                     </div>
                     <div>
                         <h3 class="text-2xl font-black text-slate-800">Ranking Live Quizz</h3>
-                        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest" id="leaderboard-subtitle">Pilih Mapel & Rombel</p>
+                        <p class="text-xs text-slate-400 font-bold uppercase tracking-wider" id="leaderboard-subtitle">Pilih Mapel & Rombel</p>
                     </div>
                 </div>
                 <button onclick="closeModals()" class="w-10 h-10 flex items-center justify-center bg-slate-100 text-slate-400 hover:bg-red-100 hover:text-red-500 rounded-xl transition-all">

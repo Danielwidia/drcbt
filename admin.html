@@ -904,7 +904,7 @@
                     </div>
                     <div class="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-sm">
                         <table class="w-full text-left text-sm">
-                            <thead class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                            <thead class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-wider">
                                 <tr>
                                     <th class="px-6 py-4">Siswa</th>
                                     <th class="px-6 py-4">Rombel</th>
@@ -1626,10 +1626,10 @@
                     onchange="previewQuestionImages(event)">
                 <div class="mt-2 flex gap-2">
                     <input type="text" id="q-image-url"
-                        class="flex-1 px-3 py-2.5 bg-slate-50 rounded-xl text-xs border border-slate-100 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                        class="flex-1 px-4 py-2.5 bg-slate-50 rounded-xl text-xs border border-slate-100 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
                         placeholder="Atau paste URL Gambar di sini...">
                     <button onclick="addImageUrl()"
-                        class="px-3 py-2 bg-sky-100 text-sky-600 rounded-xl text-xs font-bold hover:bg-sky-600 hover:text-white transition-all whitespace-nowrap">TAMBAH
+                        class="px-4 py-2 bg-sky-100 text-sky-600 rounded-xl text-xs font-bold hover:bg-sky-600 hover:text-white transition-all whitespace-nowrap">TAMBAH
                         URL</button>
                 </div>
                 <div id="q-images-preview" class="flex flex-wrap gap-2 mt-4"></div>
@@ -1641,14 +1641,29 @@
                     <button type="button" onclick="insertOptionSymbol('²')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Pangkat 2 (²)">x²</button>
                     <button type="button" onclick="insertOptionSymbol('³')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Pangkat 3 (³)">x³</button>
                     <button type="button" onclick="insertOptionSymbol('₂')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Subscript 2 (₂)">x₂</button>
+                    <button type="button" onclick="insertOptionSymbol('xⁿ')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Pangkat umum (xⁿ)">xⁿ</button>
+                    <button type="button" onclick="insertOptionSymbol('xₙ')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Subscript umum (xₙ)">xₙ</button>
+                    <button type="button" onclick="insertOptionSymbol('a/b')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Pecahan umum (a/b)">a/b</button>
+                    <button type="button" onclick="insertOptionSymbol('3/4')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Pecahan 3/4">3/4</button>
                     <button type="button" onclick="insertOptionSymbol('√')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Akar (√)">√</button>
                     <button type="button" onclick="insertOptionSymbol('π')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Pi (π)">π</button>
-                    <button type="button" onclick="insertOptionSymbol('°C')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Derajat C (°C)">°C</button>
-                    <button type="button" onclick="insertOptionSymbol('±')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Plus Minus (±)">±</button>
-                    <button type="button" onclick="insertOptionSymbol('≠')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Tidak Sama (≠)">≠</button>
+                    <button type="button" onclick="insertOptionSymbol('∞')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Tak hingga (∞)">∞</button>
+                    <button type="button" onclick="insertOptionSymbol('±')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Plus minus (±)">±</button>
+                    <button type="button" onclick="insertOptionSymbol('≈')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Kira-kira (≈)">≈</button>
+                    <button type="button" onclick="insertOptionSymbol('≠')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Tidak sama (≠)">≠</button>
                     <button type="button" onclick="insertOptionSymbol('≤')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Kurang dari sama (≤)">≤</button>
                     <button type="button" onclick="insertOptionSymbol('≥')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Lebih dari sama (≥)">≥</button>
-                    <button type="button" onclick="insertOptionSymbol('½')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Setengah (½)">½</button>
+                    <button type="button" onclick="insertOptionSymbol('∠')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Sudut (∠)">∠</button>
+                    <button type="button" onclick="insertOptionSymbol('∑')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Sigma (∑)">∑</button>
+                    <button type="button" onclick="insertOptionSymbol('∫')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Integral (∫)">∫</button>
+                    <button type="button" onclick="insertOptionSymbol('°C')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Derajat C (°C)">°C</button>
+                    <button type="button" onclick="insertOptionSymbol('α')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Alpha (α)">α</button>
+                    <button type="button" onclick="insertOptionSymbol('β')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Beta (β)">β</button>
+                    <button type="button" onclick="insertOptionSymbol('γ')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Gamma (γ)">γ</button>
+                    <button type="button" onclick="insertOptionSymbol('λ')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Lambda (λ)">λ</button>
+                    <button type="button" onclick="insertOptionSymbol('μ')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Mu (μ)">μ</button>
+                    <button type="button" onclick="insertOptionSymbol('ω')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Omega (ω)">ω</button>
+                    <button type="button" onclick="insertCustomOptionSymbol()" class="px-2 py-0.5 bg-sky-100 hover:bg-sky-600 text-sky-700 hover:text-white rounded text-xs font-black transition-colors" title="Masukkan simbol custom">Custom</button>
                 </div>
             </div>
             <div class="space-y-2 mb-6" id="q-opts-container">
@@ -1821,7 +1836,7 @@
                 </div>
             </div>
             <button id="student-save-btn" onclick="saveStudent()"
-                class="w-full py-4 bg-sky-600 text-white font-bold rounded-2xl transition-all hover:bg-sky-700 shadow-lg shadow-sky-100">DAFTAR</button>
+                class="w-full py-4 bg-sky-600 text-white font-bold rounded-2xl transition-all hover:bg-sky-700">DAFTAR</button>
         </div>
     </div>
 
@@ -1987,7 +2002,7 @@
                 </div>
             </div>
             <h3 class="text-xl font-bold text-slate-800 mb-2">AI sedang berpikir...</h3>
-            <p class="text-rose-200 text-sm animate-pulse italic">Mohon tunggu, sedang merangkai pertanyaan terbaik
+            <p class="text-sm text-slate-500">Mohon tunggu, sedang merangkai pertanyaan terbaik
                 untuk Anda.</p>
         </div>
     </div>
@@ -2155,6 +2170,7 @@
 
     <!-- Loading Overlay -->
     <div id="loading-overlay"
+
         class="fixed inset-0 bg-slate-900 bg-opacity-60 flex items-center justify-center p-4 z-50">
         <div class="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-8 text-center">
             <div class="w-16 h-16 mx-auto mb-4 relative">
@@ -2418,13 +2434,13 @@
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Mata
                             Pelajaran</label>
                         <select id="quizz-ai-mapel"
-                            class="w-full px-4 py-3 bg-slate-50 rounded-2xl outline-none ring-1 ring-slate-100 focus:ring-2 focus:ring-rose-500 font-bold text-sm"></select>
+                            class="w-full px-4 py-3 bg-slate-50 rounded-2xl outline-none ring-1 ring-slate-100 focus:ring-2 focus:ring-rose-500 font-bold"></select>
                     </div>
                     <div>
                         <label
                             class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Rombel</label>
                         <select id="quizz-ai-rombel"
-                            class="w-full px-4 py-3 bg-slate-50 rounded-2xl outline-none ring-1 ring-slate-100 focus:ring-2 focus:ring-rose-500 font-bold text-sm"></select>
+                            class="w-full px-4 py-3 bg-slate-50 rounded-2xl outline-none ring-1 ring-slate-100 focus:ring-2 focus:ring-rose-500 font-bold"></select>
                     </div>
                 </div>
 
