@@ -312,19 +312,44 @@ function showToast(message, type = 'success') {
     }, type === 'info' ? 1500 : 3000);
 }
 
-function insertOptionSymbol(symbol, targetInputEl) {
-    let el = targetInputEl || document.activeElement;
-    if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) {
-        const opts = document.querySelectorAll('.q-opt, .tf-statement, .matching-question, .matching-answer');
-        el = Array.from(opts).find(input => input === document.activeElement) || opts[0];
+function getWritingTargetInput(targetInputEl) {
+    if (targetInputEl && typeof targetInputEl.matches === 'function' && targetInputEl.matches('.q-opt, .tf-statement, .matching-question, .matching-answer')) {
+        return targetInputEl;
     }
+
+    const active = document.activeElement;
+    if (active && typeof active.matches === 'function' && active.matches('.q-opt, .tf-statement, .matching-question, .matching-answer')) {
+        return active;
+    }
+
+    const lastFocused = window.__lastFocusedOptionInput;
+    if (lastFocused && lastFocused.isConnected) {
+        return lastFocused;
+    }
+
+    const opts = document.querySelectorAll('.q-opt, .tf-statement, .matching-question, .matching-answer');
+    return opts.length ? opts[0] : null;
+}
+
+document.addEventListener('focusin', (event) => {
+    const el = event.target;
+    if (el && typeof el.matches === 'function' && el.matches('.q-opt, .tf-statement, .matching-question, .matching-answer')) {
+        window.__lastFocusedOptionInput = el;
+    }
+});
+
+function insertOptionSymbol(symbol, targetInputEl) {
+    let el = getWritingTargetInput(targetInputEl);
     if (!el) return;
 
-    const start = el.selectionStart || el.value.length;
-    const end = el.selectionEnd || el.value.length;
-    const val = el.value;
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const val = el.value || '';
     el.value = val.substring(0, start) + symbol + val.substring(end);
-    el.selectionStart = el.selectionEnd = start + symbol.length;
+    if (typeof el.setSelectionRange === 'function') {
+        const newPos = start + symbol.length;
+        el.setSelectionRange(newPos, newPos);
+    }
     el.focus();
     el.dispatchEvent(new Event('input', { bubbles: true }));
 }
