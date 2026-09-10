@@ -1,3 +1,120 @@
+// ─── Quill Rich Text Editor Helpers ────────────────────────────────────────
+window._quillQuestion = null;
+window._quillAnswer = null;
+window._quillQuizz = null;
+
+function initQuillEditors() {
+    const questionEditorEl = document.getElementById('q-text-editor');
+    const answerEditorEl = document.getElementById('q-answer-text-editor');
+    const quizzEditorEl = document.getElementById('quizz-question-editor');
+
+    const fullToolbarOptions = [
+        [{ 'header': [1, 2, 3, false] }, { 'size': ['small', false, 'large', 'huge'] }],
+        ['bold', 'italic', 'underline', 'strike'],
+        [{ 'color': [] }, { 'background': [] }],
+        [{ 'script': 'sub'}, { 'script': 'super' }],
+        [{ 'align': [] }],
+        [{ 'list': 'ordered'}, { 'list': 'bullet' }, { 'indent': '-1'}, { 'indent': '+1' }],
+        ['blockquote', 'code-block'],
+        ['link', 'image'],
+        ['clean']
+    ];
+
+    const simpleToolbarOptions = [
+        ['bold', 'italic', 'underline', 'strike'],
+        [{ 'script': 'sub'}, { 'script': 'super' }],
+        [{ 'color': [] }, { 'background': [] }],
+        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+        ['clean']
+    ];
+
+    if (questionEditorEl && !window._quillQuestion) {
+        window._quillQuestion = new Quill('#q-text-editor', {
+            theme: 'snow',
+            placeholder: 'Tulis atau format pertanyaan soal di sini (dukung gambar, tabel, rumus, tebal, miring, dll)...',
+            modules: { toolbar: fullToolbarOptions }
+        });
+        window._quillQuestion.on('text-change', () => {
+            const html = window._quillQuestion.root.innerHTML;
+            const ta = document.getElementById('q-text');
+            if (ta) ta.value = (html === '<p><br></p>' ? '' : html);
+        });
+    }
+
+    if (answerEditorEl && !window._quillAnswer) {
+        window._quillAnswer = new Quill('#q-answer-text-editor', {
+            theme: 'snow',
+            placeholder: 'Tuliskan pembahasan atau kunci jawaban esai di sini...',
+            modules: { toolbar: simpleToolbarOptions }
+        });
+        window._quillAnswer.on('text-change', () => {
+            const html = window._quillAnswer.root.innerHTML;
+            const ta = document.getElementById('q-answer-text');
+            if (ta) ta.value = (html === '<p><br></p>' ? '' : html);
+        });
+    }
+
+    if (quizzEditorEl && !window._quillQuizz) {
+        window._quillQuizz = new Quill('#quizz-question-editor', {
+            theme: 'snow',
+            placeholder: 'Tulis pertanyaan quizz interaktif di sini...',
+            modules: { toolbar: fullToolbarOptions }
+        });
+        window._quillQuizz.on('text-change', () => {
+            const html = window._quillQuizz.root.innerHTML;
+            const ta = document.getElementById('quizz-question');
+            if (ta) ta.value = (html === '<p><br></p>' ? '' : html);
+        });
+    }
+}
+
+function setQuillContent(editorKey, html) {
+    let q;
+    if (editorKey === 'question') q = window._quillQuestion;
+    else if (editorKey === 'answer') q = window._quillAnswer;
+    else if (editorKey === 'quizz') q = window._quillQuizz;
+
+    if (!q) return;
+    if (!html || html.trim() === '') {
+        q.setContents([]);
+    } else {
+        q.clipboard.dangerouslyPasteHTML(html);
+    }
+}
+
+function getQuillContent(editorKey) {
+    let q, id;
+    if (editorKey === 'question') { q = window._quillQuestion; id = 'q-text'; }
+    else if (editorKey === 'answer') { q = window._quillAnswer; id = 'q-answer-text'; }
+    else if (editorKey === 'quizz') { q = window._quillQuizz; id = 'quizz-question'; }
+
+    if (!q) {
+        const el = document.getElementById(id);
+        return el ? el.value : '';
+    }
+    const html = q.root.innerHTML;
+    return (html === '<p><br></p>') ? '' : html;
+}
+
+function insertOptionSymbol(symbol, targetInputEl) {
+    let el = targetInputEl || document.activeElement;
+    if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) {
+        const opts = document.querySelectorAll('.q-opt, .tf-statement, .matching-question, .matching-answer');
+        el = Array.from(opts).find(input => input === document.activeElement) || opts[0];
+    }
+    if (!el) return;
+
+    const start = el.selectionStart || el.value.length;
+    const end = el.selectionEnd || el.value.length;
+    const val = el.value;
+    el.value = val.substring(0, start) + symbol + val.substring(end);
+    el.selectionStart = el.selectionEnd = start + symbol.length;
+    el.focus();
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+window.insertOptionSymbol = insertOptionSymbol;
+// ─────────────────────────────────────────────────────────────────────────────
+
 function showLoginForm(type) {
     window.loginType = type;
     document.getElementById('auth-modal').classList.remove('hidden');
@@ -12,6 +129,10 @@ function closeModals() {
     });
     const qText = document.getElementById('q-text');
     if (qText) qText.value = '';
+    // Clear Quill editors
+    if (window._quillQuestion) window._quillQuestion.setContents([]);
+    if (window._quillAnswer) window._quillAnswer.setContents([]);
+    if (window._quillQuizz) window._quillQuizz.setContents([]);
     document.querySelectorAll('.q-opt').forEach(i => i.value = '');
     const qMapel = document.getElementById('q-mapel');
     const qRombel = document.getElementById('q-rombel');
@@ -2513,8 +2634,17 @@ function openTeacherQuestionModal() {
     editQuestionIndex = null;
     window.matchingEditOriginalCorrect = null;
 
-    document.getElementById('q-text').value = '';
+    // Initialize Quill editors
+    setTimeout(() => initQuillEditors(), 50);
+
     document.getElementById('q-type').value = 'single';
+    // Clear Quill editors
+    setTimeout(() => {
+        if (window._quillQuestion) window._quillQuestion.setContents([]);
+        if (window._quillAnswer) window._quillAnswer.setContents([]);
+    }, 80);
+    const textEl = document.getElementById('q-text');
+    if (textEl) textEl.value = '';
     document.getElementById('q-mapel').value = teacherSubjectNames(currentSiswa)[0] || '';
     document.getElementById('q-image-file').value = '';
     // Clear multiple images preview
@@ -2562,7 +2692,7 @@ function openTeacherQuestionModal() {
 }
 
 function saveTeacherQuestion() {
-    const text = document.getElementById('q-text').value;
+    const text = getQuillContent('question');
     const options = Array.from(document.querySelectorAll('.q-opt')).map(i => i.value);
     const mapel = document.getElementById('q-mapel').value;
     const rombel = document.getElementById('q-rombel').value;
@@ -2594,7 +2724,7 @@ function saveTeacherQuestion() {
         record.options = options;
         record.correct = corr;
     } else if (type === 'text') {
-        const ans = document.getElementById('q-answer-text').value.trim();
+        const ans = getQuillContent('answer').trim();
         if (!ans) return alert('Tuliskan jawaban esai yang benar!');
         record.correct = ans;
     } else if (type === 'tf') {
@@ -4401,7 +4531,7 @@ function renderAdminDetailPaket() {
         return `
                     <tr class="hover:bg-slate-50 transition-colors">
                         <td class="px-4 py-4 text-slate-700">${idx + 1}</td>
-                        <td class="px-4 py-4 text-slate-700 whitespace-pre-wrap break-words">${escapeHtml(q.text)}</td>
+                        <td class="px-4 py-4 text-slate-700 whitespace-pre-wrap break-words">${normalizeHtmlImages(q.text)}</td>
                         <td class="px-4 py-4 text-center">${imageColHtml}</td>
                         <td class="px-4 py-4 text-slate-700 overflow-hidden text-ellipsis">${escapeHtml(q.mapel)} / ${escapeHtml(q.rombel)}</td>
                         <td class="px-4 py-4 text-slate-700 whitespace-pre-wrap break-words">${escapeHtml(corrText)}</td>
@@ -4959,9 +5089,18 @@ function openQuestionModal() {
         modal.classList.remove('hidden');
         modal.classList.add('flex');
 
+        // Initialize Quill editors
+        setTimeout(() => initQuillEditors(), 50);
+
         // Reset form fields
         const typeEl = document.getElementById('q-type');
         if (typeEl) typeEl.value = 'single';
+
+        // Clear Quill question editor
+        setTimeout(() => {
+            if (window._quillQuestion) window._quillQuestion.setContents([]);
+            if (window._quillAnswer) window._quillAnswer.setContents([]);
+        }, 80);
 
         const textEl = document.getElementById('q-text');
         if (textEl) textEl.value = '';
@@ -5071,12 +5210,25 @@ function openEditQuestionModal(idx) {
 
     document.getElementById('q-mapel').value = q.mapel;
     document.getElementById('q-rombel').value = q.rombel;
-    document.getElementById('q-text').value = q.text;
+    // Set Quill content
+    setTimeout(() => {
+        initQuillEditors();
+        setQuillContent('question', q.text || '');
+        if (q.type === 'text') {
+            setQuillContent('answer', q.correct || '');
+        } else {
+            if (window._quillAnswer) window._quillAnswer.setContents([]);
+        }
+    }, 80);
+    const textEl = document.getElementById('q-text');
+    if (textEl) textEl.value = q.text || '';
     window.matchingEditOriginalCorrect = Array.isArray(q.correct) ? q.correct.slice() : null;
+    // Keep hidden textarea in sync for fallback
+    const ansEl = document.getElementById('q-answer-text');
     if (q.type === 'text') {
-        document.getElementById('q-answer-text').value = q.correct || '';
+        if (ansEl) ansEl.value = q.correct || '';
     } else {
-        document.getElementById('q-answer-text').value = '';
+        if (ansEl) ansEl.value = '';
     }
     document.getElementById('q-type').value = q.type || 'single';
     onQuestionTypeChange();
@@ -5117,7 +5269,10 @@ function openEditQuestionModal(idx) {
     } else if (q.type === 'matching') {
         const qCont = document.getElementById('q-matching-questions');
         const aCont = document.getElementById('q-matching-answers');
-        if (document.getElementById('q-text')) document.getElementById('q-text').value = q.text || '';
+        if (document.getElementById('q-text')) {
+            document.getElementById('q-text').value = q.text || '';
+            setTimeout(() => setQuillContent('question', q.text || ''), 80);
+        }
 
         if (qCont && aCont) {
             qCont.innerHTML = '';
@@ -5411,7 +5566,7 @@ function updateQuestionTypeDisplay(type) {
 }
 
 function saveQuestion() {
-    const text = document.getElementById('q-text').value;
+    const text = getQuillContent('question');
     const options = Array.from(document.querySelectorAll('.q-opt')).map(i => i.value);
     const mapel = document.getElementById('q-mapel').value;
     const rombel = document.getElementById('q-rombel').value;
@@ -5428,7 +5583,7 @@ function saveQuestion() {
         record.options = options;
         record.correct = corr;
     } else if (type === 'text') {
-        const ans = document.getElementById('q-answer-text').value.trim();
+        const ans = getQuillContent('answer').trim();
         if (!ans) return alert('Tuliskan jawaban esai yang benar!');
         record.correct = ans;
     } else if (type === 'tf') {
@@ -11722,6 +11877,9 @@ async function openQuizzModal(idx = null) {
     document.getElementById('quizz-modal-error').classList.add('hidden');
     window.storedQuizzImages = [];
 
+    // Initialize Quill editors if needed
+    setTimeout(() => initQuillEditors(), 50);
+
     if (idx !== null && db.quizzes && db.quizzes[idx]) {
         const q = db.quizzes[idx];
         document.getElementById('quizz-modal-title').innerText = "Edit Soal Quizz";
@@ -11730,6 +11888,7 @@ async function openQuizzModal(idx = null) {
         mapelSelect.value = q.mapel || '';
         rombelSelect.value = q.rombel || '';
         document.getElementById('quizz-question').value = q.question || '';
+        setTimeout(() => setQuillContent('quizz', q.question || ''), 80);
 
         document.getElementById('quizz-a0').value = q.answers[0] || '';
         document.getElementById('quizz-a1').value = q.answers[1] || '';
@@ -11746,6 +11905,7 @@ async function openQuizzModal(idx = null) {
         document.getElementById('quizz-edit-idx').value = '';
 
         document.getElementById('quizz-question').value = '';
+        setTimeout(() => setQuillContent('quizz', ''), 80);
         document.getElementById('quizz-a0').value = '';
         document.getElementById('quizz-a1').value = '';
         document.getElementById('quizz-a2').value = '';
@@ -11775,7 +11935,7 @@ function setQuizzCorrect(idx) {
 async function saveQuizzManual() {
     const mapel = document.getElementById('quizz-mapel').value;
     const rombel = document.getElementById('quizz-rombel').value;
-    const q = document.getElementById('quizz-question').value;
+    const q = getQuillContent('quizz');
     const a0 = document.getElementById('quizz-a0').value;
     const a1 = document.getElementById('quizz-a1').value;
     const a2 = document.getElementById('quizz-a2').value;
