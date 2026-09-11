@@ -2003,101 +2003,104 @@ async function callGeminiAI(prompt, teacherId = null) {
         for (const modelObj of models) {
             const { name: model, version } = modelObj;
             for (const key of keys) {
-                let lastError;
-                const sessionBadKeys = new Set();
-                const sessionFailures = {}; // per-key transient failure counter
-
-                // Tunable timeouts/backoff
-                const totalTimeoutMs = 12000; // overall attempt timeout for this call
-                const requestTimeoutMs = 5000; // per-request timeout
-                const deadline = Date.now() + totalTimeoutMs;
-
-                const fetchWithTimeout = async (url, opts = {}, timeout = requestTimeoutMs) => {
-                    const controller = new AbortController();
-                    const id = setTimeout(() => controller.abort(), timeout);
-                    try {
-                        const res = await fetch(url, { ...opts, signal: controller.signal });
-                        return res;
-                    } finally {
-                        clearTimeout(id);
-                    }
-                };
+                if (sessionBadKeys.has(key)) continue;
 
                 try {
-                    for (const modelObj of models) {
-                        if (Date.now() > deadline) {
-                            lastError = 'Timeout total tercapai saat mencari model Gemini yang responsif.';
-                            break;
-                        }
+                    const hash = key.substring(key.length - 10);
+                    console.log(`[AI] Trying Gemini: ${model} (${version}) with key: ...${hash}`);
 
-                        const { name: model, version } = modelObj;
-                        for (const key of keys) {
-                            if (sessionBadKeys.has(key)) continue;
-                            if (Date.now() > deadline) break;
+                    const response = await fetch(`https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent?key=${key}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                    });
 
-                            try {
-                                const hash = key.substring(key.length - 10);
-                                console.log(`[AI] Trying Gemini: ${model} (${version}) with key: ...${hash}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        const result = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                        console.log(`[AI] ✅ Success with model: ${model}`);
+                        return result;
+                    }
 
-                                const response = await fetchWithTimeout(
-                                    `https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent?key=${key}`,
-                                    {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-                                    }
-                                );
+                    const errData = await response.json().catch(() => ({}));
+                    const errMsg = errData.error?.message || response.statusText;
 
-                                if (response && response.ok) {
-                                    const data = await response.json();
-                                    const result = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                                    console.log(`[AI] ✅ Success with model: ${model}`);
-                                    return result;
-                                }
-
-                                const errData = await (response ? response.json().catch(() => ({})) : Promise.resolve({}));
-                                const errMsg = errData.error?.message || (response ? response.statusText : 'No response');
-
-                                // Handle transient busy/rate-limit more softly: allow a retry for the same key once
-                                if (response && (response.status === 429 || response.status === 503)) {
-                                    lastError = `[Rate Limit / Server Busy] pada model ${model} (${version}).`;
-                                    console.warn(`[AI] ⚠️ Gemini rate-limited / busy for model: ${model}`);
-
-                                    sessionFailures[key] = (sessionFailures[key] || 0) + 1;
-                                    if (sessionFailures[key] >= 2) {
-                                        // mark exhausted only after repeated failures in this session
-                                        await markApiKeyStatus(key, 'exhausted', `Gemini Rate Limit / Busy (${model})`, 'Google Gemini', teacherId);
-                                        sessionBadKeys.add(key);
-                                    } else {
-                                        // short non-blocking pause to avoid hammering
-                                        await new Promise(r => setTimeout(r, 300));
-                                    }
-                                    continue;
-                                } else if (response && response.status === 404) {
-                                    lastError = `${model} (${version}): HTTP 404 - Model tidak ditemukan.`;
-                                    console.error(`[AI] ❌ Model ${model} not available on ${version}, skipping to next model tier...`);
-                                    break; // Model tidak ada, lanjut ke model berikutnya
-                                } else {
-                                    lastError = `${model} (${version}): HTTP ${response ? response.status : 'NO_RESPONSE'} - ${errMsg}`;
-                                    console.error(`[AI] ❌ Model ${model} (${version}) error: ${response ? response.status : 'NO_RESPONSE'} ${errMsg}`);
-                                    if (response && response.status === 400 && (errMsg.includes('API_KEY_INVALID') || errMsg.toLowerCase().includes('invalid'))) {
-                                        await markApiKeyStatus(key, 'exhausted', `Gemini Invalid Key`, 'Google Gemini', teacherId);
-                                        sessionBadKeys.add(key);
-                                    }
-                                }
-
-                            } catch (e) {
-                                lastError = e.message;
-                                console.error(`[AI] Fetch error with ${model}:`, e.message);
-                                // Treat abort/network errors as transient; allow one more try before exhausting
-                            }
+                    if (response.status === 429) {
+                        lastError = `[Rate Limit / Sistem Sibuk] pada model ${model} (${version}).`;
+                        console.warn(`[AI] ⚠️ Gemini rate-limited / busy for model: ${model}`);
+                        await markApiKeyStatus(key, 'exhausted', `Gemini Rate Limit / Busy (${model})`, 'Google Gemini', teacherId);
+                        sessionBadKeys.add(key);
+                        continue;
+                    } else if (response.status === 503) {
+                        lastError = `[Server Sibuk] pada model ${model} (${version}).`;
+                        console.warn(`[AI] ⚠️ Gemini server busy for model: ${model}`);
+                        await markApiKeyStatus(key, 'exhausted', `Gemini Server Busy (${model})`, 'Google Gemini', teacherId);
+                        sessionBadKeys.add(key);
+                        continue;
+                    } else if (response.status === 404) {
+                        lastError = `${model} (${version}): HTTP 404 - Model tidak ditemukan.`;
+                        console.error(`[AI] ❌ Model ${model} not available on ${version}, skipping to next model tier...`);
+                        break; // Model tidak ada, lanjut ke model berikutnya
+                    } else {
+                        lastError = `${model} (${version}): HTTP ${response.status} - ${errMsg}`;
+                        console.error(`[AI] ❌ Model ${model} (${version}) error: ${response.status} ${errMsg}`);
+                        if (response.status === 400 && (errMsg.includes('API_KEY_INVALID') || errMsg.includes('invalid'))) {
+                            await markApiKeyStatus(key, 'exhausted', `Gemini Invalid Key`, 'Google Gemini', teacherId);
+                            sessionBadKeys.add(key);
                         }
                     }
+
                 } catch (e) {
                     lastError = e.message;
-                    console.error(`[AI] Gemini implementation error:`, e.message);
+                    console.error(`[AI] Fetch error with ${model}:`, e.message);
                 }
-                throw new Error('Gagal menggunakan Gemini: ' + lastError);
+            }
+        }
+    } catch (e) {
+        lastError = e.message;
+        console.error(`[AI] Gemini implementation error:`, e.message);
+    }
+    throw new Error('Gagal menggunakan Gemini: ' + lastError);
+}
+
+/**
+ * Helper to call OpenAI / ChatGPT
+ */
+async function callOpenAI(prompt, teacherId = null) {
+    const keys = await discoverAllAPIKeys('openai', teacherId);
+
+    console.log('[AI] Discovery [openai]: Found', keys.length, 'active keys');
+
+    if (keys.length === 0) throw new Error('API Key OpenAI tidak ditemukan atau kuota habis di semua sumber.');
+
+    // User requested order: gpt-4o-mini (#1), o1-mini (#2), gpt-4o (#3)
+    const models = ['gpt-4o-mini', 'o1-mini', 'gpt-4o'];
+    let lastError;
+    const sessionBadKeys = new Set();
+
+    for (const model of models) {
+        for (const key of keys) {
+            // Mid-session skip: skip if key failed in a previous model iteration
+            if (sessionBadKeys.has(key)) continue;
+
+            try {
+                const hash = key.substring(key.length - 10);
+                console.log(`[AI] Trying OpenAI model: ${model} with key: ...${hash}`);
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${key}`
+                    },
+                    body: JSON.stringify({
+                        model: model,
+                        messages: [{ role: 'user', content: prompt }]
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const result = data.choices?.[0]?.message?.content || '';
                     console.log(`[AI] ✅ Success with OpenAI model: ${model}`);
                     return result;
                 }
