@@ -135,7 +135,7 @@ async function loadDatabaseFromServer() {
             }
 
             try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch (e) { }
-            updateStats();
+                    const seed = document.querySelector("button[onclick*='insertOptionSymbol(\'²\')']") || document.querySelector("button[onclick*=\"insertOptionSymbol('²')\"]");
             renderAdminStudents();
             renderAdminQuestions();
             renderAdminResults();
@@ -338,30 +338,160 @@ document.addEventListener('focusin', (event) => {
     }
 });
 
+function toSuperscriptText(value) {
+    const map = {
+        '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+        'a': 'ᵃ', 'b': 'ᵇ', 'c': 'ᶜ', 'd': 'ᵈ', 'e': 'ᵉ', 'f': 'ᶠ', 'g': 'ᵍ', 'h': 'ʰ', 'i': 'ⁱ', 'j': 'ʲ', 'k': 'ᵏ', 'l': 'ˡ', 'm': 'ᵐ', 'n': 'ⁿ', 'o': 'ᵒ', 'p': 'ᵖ', 'q': 'ᑫ', 'r': 'ʳ', 's': 'ˢ', 't': 'ᵗ', 'u': 'ᵘ', 'v': 'ᵛ', 'w': 'ʷ', 'x': 'ˣ', 'y': 'ʸ', 'z': 'ᶻ',
+        'A': 'ᴬ', 'B': 'ᴮ', 'C': 'ᶜ', 'D': 'ᴰ', 'E': 'ᴱ', 'F': 'ᶠ', 'G': 'ᴳ', 'H': 'ᴴ', 'I': 'ᴵ', 'J': 'ᴶ', 'K': 'ᴷ', 'L': 'ᴸ', 'M': 'ᴹ', 'N': 'ᴺ', 'O': 'ᴼ', 'P': 'ᴾ', 'Q': 'Q', 'R': 'ᴿ', 'S': 'ˢ', 'T': 'ᵀ', 'U': 'ᵁ', 'V': 'ᵛ', 'W': 'ᵂ', 'X': 'ˣ', 'Y': 'ʸ', 'Z': 'ᶻ'
+    };
+    return Array.from(String(value || '')).map(ch => map[ch] || ch).join('');
+}
+
+function toSubscriptText(value) {
+    const map = {
+        '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+        'a': 'ₐ', 'e': 'ₑ', 'h': 'ₕ', 'i': 'ᵢ', 'j': 'ⱼ', 'k': 'ₖ', 'l': 'ₗ', 'm': 'ₘ', 'n': 'ₙ', 'o': 'ₒ', 'p': 'ₚ', 'r': 'ᵣ', 's': 'ₛ', 't': 'ₜ', 'u': 'ᵤ', 'v': 'ᵥ', 'x': 'ₓ',
+        'A': 'ₐ', 'E': 'ₑ', 'H': 'ₕ', 'I': 'ᵢ', 'J': 'ⱼ', 'K': 'ₖ', 'L': 'ₗ', 'M': 'ₘ', 'N': 'ₙ', 'O': 'ₒ', 'P': 'ₚ', 'R': 'ᵣ', 'S': 'ₛ', 'T': 'ₜ', 'U': 'ᵤ', 'V': 'ᵥ', 'X': 'ₓ'
+    };
+    return Array.from(String(value || '')).map(ch => map[ch] || ch).join('');
+}
+
+function buildTemplateSymbol(symbol, selectedText) {
+    const clean = String(selectedText || '').trim();
+    if (symbol === 'xⁿ') {
+        if (clean) return toSuperscriptText(clean);
+        return 'xⁿ';
+    }
+    if (symbol === 'xₙ') {
+        if (clean) return toSubscriptText(clean);
+        return 'xₙ';
+    }
+    return symbol;
+}
+
 function insertOptionSymbol(symbol, targetInputEl) {
     let el = getWritingTargetInput(targetInputEl);
     if (!el) return;
 
     const start = el.selectionStart ?? el.value.length;
     const end = el.selectionEnd ?? el.value.length;
+    const selectedText = el.value.slice(start, end);
+    const replacement = buildTemplateSymbol(symbol, selectedText);
     const val = el.value || '';
-    el.value = val.substring(0, start) + symbol + val.substring(end);
+    el.value = val.substring(0, start) + replacement + val.substring(end);
+
     if (typeof el.setSelectionRange === 'function') {
-        const newPos = start + symbol.length;
-        el.setSelectionRange(newPos, newPos);
+        if (symbol === 'xⁿ' || symbol === 'xₙ') {
+            if (selectedText) {
+                const cursorPos = start + replacement.length;
+                el.setSelectionRange(cursorPos, cursorPos);
+            } else {
+                const placeholderPos = start + 1;
+                el.setSelectionRange(placeholderPos, placeholderPos);
+            }
+        } else {
+            const cursorPos = start + replacement.length;
+            el.setSelectionRange(cursorPos, cursorPos);
+        }
     }
+
     el.focus();
     el.dispatchEvent(new Event('input', { bubbles: true }));
 }
+
+function shuffleArray(array) {
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
 window.insertOptionSymbol = insertOptionSymbol;
 
-function insertCustomOptionSymbol() {
-    const value = prompt('Masukkan simbol/kustom yang ingin disisipkan (contoh: xⁿ, a/b, 3/4, ∑, α, √, π, ≤):', 'xⁿ');
-    if (value === null) return;
-    const cleaned = value.trim();
-    if (!cleaned) return;
-    insertOptionSymbol(cleaned);
-}
-window.insertCustomOptionSymbol = insertCustomOptionSymbol;
+
+;(function(){
+    function buildAksaraPanel() {
+        if (document.getElementById('aksara-jawa-panel')) return;
+        const panel = document.createElement('div');
+        panel.id = 'aksara-jawa-panel';
+        panel.setAttribute('role','dialog');
+        panel.style.cssText = 'position:fixed;left:16px;bottom:64px;z-index:10000;background:#ffffff;padding:10px;border-radius:12px;box-shadow:0 12px 32px rgba(2,6,23,0.14);max-width:720px;display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:6px;align-items:center;';
+
+        const aksara = ['ꦲ','ꦧ','ꦕ','ꦗ','ꦠ','ꦢ','ꦤ','ꦒ','ꦏ','ꦭ','ꦩ','ꦫ','ꦱ','ꦮ','ꦚ','ꦛ','ꦝ','ꦔ','ꦞ','ꦟ','ꦣ','ꦩ','ꦦ','ꦨ','ꦩ'];
+        const pasangan = ['꧀ꦲ','꧀ꦧ','꧀ꦕ','꧀ꦗ','꧀ꦠ','꧀ꦢ','꧀ꦤ','꧀ꦒ','꧀ꦏ','꧀ꦭ','꧀ꦩ','꧀ꦫ','꧀ꦱ','꧀ꦮ','꧀ꦚ','꧀ꦛ','꧀ꦝ','꧀ꦔ'];
+        const diacritics = ['ꦶ','ꦷ','ꦸ','ꦹ','ꦺ','ꦻ','ꦼ','ꦽ','ꦾ','ꦿ','ꦴ','ꦵ','꧀'];
+
+        const all = aksara.concat(pasangan).concat(diacritics);
+
+        all.forEach(ch => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'aksara-jawa-btn';
+            btn.style.cssText = 'padding:6px 8px;border-radius:8px;background:#fff;border:1px solid #f1f5f9;cursor:pointer;font-weight:700;font-size:18px';
+            btn.textContent = ch;
+            btn.onclick = function() { insertOptionSymbol(ch); const p = document.getElementById('aksara-jawa-panel'); if (p) p.remove(); };
+            panel.appendChild(btn);
+        });
+
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.textContent = 'Tutup';
+        close.style.cssText = 'grid-column:1/-1;margin-top:6px;padding:8px;border-radius:10px;background:#f1f5f9;border:none;cursor:pointer;font-weight:700';
+        close.onclick = function() { panel.remove(); };
+        panel.appendChild(close);
+
+        document.body.appendChild(panel);
+    }
+
+    window.toggleAksaraJawa = function() {
+        const panel = document.getElementById('aksara-jawa-panel');
+        if (panel) { panel.remove(); return; }
+        buildAksaraPanel();
+    };
+
+    // Try to insert the toggle into the symbol helper toolbar in the question modal.
+    // Falls back to a floating button when toolbar can't be found.
+    function createToolbarToggle() {
+        if (document.getElementById('toggle-aksara-jawa-btn')) return;
+
+        // Find an existing helper button that calls insertOptionSymbol
+        const seed = Array.from(document.querySelectorAll('button')).find(b => {
+            const o = b.getAttribute && b.getAttribute('onclick');
+            return typeof o === 'string' && o.includes('insertOptionSymbol(');
+        });
+
+        const makeBtn = () => {
+            const tbtn = document.createElement('button');
+            tbtn.id = 'toggle-aksara-jawa-btn';
+            tbtn.type = 'button';
+            tbtn.title = 'Aksara Jawa';
+            tbtn.textContent = 'Aksara Jawa';
+            tbtn.onclick = window.toggleAksaraJawa;
+            // match helper button styling used in the modal toolbar
+            tbtn.className = 'px-2 py-0.5 bg-amber-100 hover:bg-amber-600 text-amber-700 hover:text-white rounded text-xs font-black transition-colors';
+            return tbtn;
+        };
+
+        if (seed && seed.parentElement) {
+            const container = seed.parentElement;
+            const tbtn = makeBtn();
+            container.appendChild(tbtn);
+            return;
+        }
+
+        // fallback to floating button
+        const tbtn = makeBtn();
+        tbtn.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:10001;padding:8px 12px;background:#f59e0b;color:#fff;border-radius:999px;border:none;box-shadow:0 8px 24px rgba(0,0,0,0.12);font-weight:800;cursor:pointer';
+        document.body.appendChild(tbtn);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', createToolbarToggle);
+    } else {
+        createToolbarToggle();
+    }
+
+})();
 
 
