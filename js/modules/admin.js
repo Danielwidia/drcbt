@@ -283,6 +283,18 @@ let editStudentId = null;
 
 let selectedAdminQuestions = new Set();
 
+function parseLiveExamTimestamp(val) {
+    if (!val && val !== 0) return Date.now();
+    if (typeof val === 'number') return val;
+    const str = String(val).trim();
+    if (/^\d+$/.test(str)) {
+        let ms = Number(str);
+        if (str.length === 10) ms *= 1000;
+        return ms;
+    }
+    const parsed = Date.parse(str);
+    return Number.isNaN(parsed) ? Date.now() : parsed;
+}
 
 async function updateAdminAPIStats() {
     const activeEl = document.getElementById('stat-api-active');
@@ -292,6 +304,9 @@ async function updateAdminAPIStats() {
 
     try {
         const res = await fetch(getApiBaseUrl() + '/api/admin/global-api-keys');
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+        }
         const data = await res.json();
 
         if (data.ok) {
