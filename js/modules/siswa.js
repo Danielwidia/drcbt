@@ -517,27 +517,6 @@ function viewQuestion(index) {
     alert(msg);
 }
 
-function handleJenisUjianChange(mapel, rombel, value) {
-    if (value === 'CUSTOM') {
-        const customValue = prompt('Masukkan nama jenis ujian kustom:', '');
-        if (customValue !== null && customValue.trim() !== '') {
-            setJenisUjian(mapel, rombel, customValue.trim());
-        } else {
-            renderAdminPaketSoal(); // Refresh to reset select if cancelled
-        }
-    } else {
-        setJenisUjian(mapel, rombel, value);
-    }
-}
-
-function setJenisUjian(mapel, rombel, value) {
-    if (!db.jenisUjian) db.jenisUjian = {};
-    const key = `${mapel}|${rombel}`;
-    db.jenisUjian[key] = value;
-    save();
-    showToast(`Jenis ujian untuk ${mapel} ${rombel} diatur ke: ${value}`, 'success');
-    renderAdminPaketSoal();
-}
 
 async function previewQuestionImages(event) {
     const files = Array.from(event.target.files);

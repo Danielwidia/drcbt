@@ -1190,8 +1190,29 @@ function renderAdminPaketSoal() {
                     <td colspan="10" class="px-4 py-12 text-center text-slate-500 text-sm">
                         Belum ada paket soal. Tambahkan soal baru terlebih dahulu.
                     </td>
-                </tr>
             `;
+}
+
+function handleJenisUjianChange(mapel, rombel, value) {
+    if (value === 'CUSTOM') {
+        const customValue = prompt('Masukkan nama jenis ujian kustom:', '');
+        if (customValue !== null && customValue.trim() !== '') {
+            setJenisUjian(mapel, rombel, customValue.trim());
+        } else {
+            renderAdminPaketSoal(); // Refresh to reset select if cancelled
+        }
+    } else {
+        setJenisUjian(mapel, rombel, value);
+    }
+}
+
+function setJenisUjian(mapel, rombel, value) {
+    if (!db.jenisUjian) db.jenisUjian = {};
+    const key = `${mapel}|${rombel}`;
+    db.jenisUjian[key] = value;
+    save();
+    showToast(`Jenis ujian untuk ${mapel} ${rombel} diatur ke: ${value}`, 'success');
+    renderAdminPaketSoal();
 }
 
 function renderAdminDetailPaket() {
