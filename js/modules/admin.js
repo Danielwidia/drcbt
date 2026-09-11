@@ -463,6 +463,10 @@ function resetStudentResults(studentId) {
         alert('Tidak ada hasil ujian aktif untuk siswa ini.');
         return;
     }
+    // PENTING: Tandai results sudah dimuat agar save() menyertakan array results
+    // dalam payload ke server. Tanpa ini, server tidak menerima status deleted
+    // dan data akan muncul kembali setelah reload.
+    loadedCollections.results = true;
     save();
     updateCompletionCharts();
     updateStats();

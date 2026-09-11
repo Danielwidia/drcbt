@@ -1961,6 +1961,10 @@ function deleteResult(idx) {
     if (!db.results[idx]) return;
     db.results[idx].deleted = true;
     db.results[idx].updatedAt = Date.now();
+    // PENTING: Tandai results sudah dimuat agar save() menyertakan array results
+    // dalam payload ke server. Tanpa ini, server tidak menerima status deleted
+    // dan data akan muncul kembali setelah reload.
+    loadedCollections.results = true;
     updateCompletionCharts();
     save();
 
@@ -1992,6 +1996,9 @@ function clearAllResults() {
         updatedAt: now
     }));
 
+    // PENTING: Tandai results sudah dimuat agar save() menyertakan array results
+    // dalam payload ke server. Tanpa ini, server tidak menerima status deleted.
+    loadedCollections.results = true;
     save();
     updateCompletionCharts();
     renderAdminResults();
