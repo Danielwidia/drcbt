@@ -480,10 +480,9 @@ window.insertOptionSymbol = insertOptionSymbol;
             return;
         }
 
-        // fallback to floating button
-        const tbtn = makeBtn();
-        tbtn.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:10001;padding:8px 12px;background:#f59e0b;color:#fff;border-radius:999px;border:none;box-shadow:0 8px 24px rgba(0,0,0,0.12);font-weight:800;cursor:pointer';
-        document.body.appendChild(tbtn);
+        // Do not create a floating fallback button on pages without the editor toolbar.
+        // This prevents the "Aksara Jawa" toggle from appearing on the login page.
+        return;
     }
 
     if (document.readyState === 'loading') {
