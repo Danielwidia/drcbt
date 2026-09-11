@@ -40,6 +40,19 @@ window.addEventListener('unhandledrejection', event => {
     console.error('%c[Unhandled Promise Rejection]', 'background: darkred; color: white; font-weight: bold', event.reason);
 });
 
+function parseLiveExamTimestamp(val) {
+    if (!val && val !== 0) return Date.now();
+    if (typeof val === 'number') return val;
+    const str = String(val).trim();
+    if (/^\d+$/.test(str)) {
+        let ms = Number(str);
+        if (str.length === 10) ms *= 1000;
+        return ms;
+    }
+    const parsed = Date.parse(str);
+    return Number.isNaN(parsed) ? Date.now() : parsed;
+}
+
 var db = {
     subjects: [{ name: "Pendidikan Agama", locked: false }, { name: "Bahasa Indonesia", locked: false }, { name: "Matematika", locked: false }, { name: "IPA", locked: false }, { name: "IPS", locked: false }, { name: "Bahasa Inggris", locked: false }],
     rombels: ["VII", "VIII", "IX"],
@@ -1711,6 +1724,7 @@ function renderSchoolIdentity(settings) {
 
     // 3. Update Admin Sidebar Branding
     const adminSidebarTitle = document.getElementById('admin-sidebar-title');
+
     const adminSidebarLogo = document.getElementById('admin-sidebar-logo');
     const raportLogo = document.getElementById('raport-logo');
 
@@ -2217,14 +2231,11 @@ function viewDetailedResult(idx) {
                                     <div class="w-8 h-8 rounded-lg bg-white/50 flex items-center justify-center text-xs font-bold border border-current/10 flex-shrink-0">${qi + 1}</div>
                                     <div class="truncate font-semibold">${subQ}</div>
                                 </div>
-                                <div class="flex items-center gap-3">
-                                    <div class="text-right">
-                                        <div class="text-[10px] uppercase font-black opacity-40 mb-1">Pasangan Siswa</div>
-                                        <div class="text-sm font-black">${displayAns}</div>
-                                        ${!isCorrect && cAns ? `<div class="text-[10px] text-emerald-600 font-bold mt-1">Kunci: ${String(cAns)}</div>` : ''}
-                                    </div>
-                                    <div class="text-lg">${icon}</div>
+                                <div class="text-right ml-4">
+                                    <div class="text-xs text-slate-500 mb-1">Siswa: <span class="font-bold">${studentText}</span></div>
+                                    <div class="text-xs text-slate-500">Kunci: <span class="font-bold">${correctText}</span></div>
                                 </div>
+                                <div class="text-lg">${icon}</div>
                             </div>
                         </div>`;
             });
