@@ -53,6 +53,35 @@ function parseLiveExamTimestamp(val) {
     return Number.isNaN(parsed) ? Date.now() : parsed;
 }
 
+async function sendLiveExamToServer(liveEntry) {
+    if (!liveEntry) {
+        console.warn('[sendLiveExamToServer] liveEntry is null/undefined');
+        return;
+    }
+    if (!liveEntry.studentId) {
+        console.warn('[sendLiveExamToServer] liveEntry missing studentId:', liveEntry);
+        return;
+    }
+    try {
+        const url = getApiBaseUrl() + '/api/live-exam';
+        console.log('%c[sendLiveExamToServer]', 'color: teal; font-weight: bold', 'POST', url);
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(liveEntry)
+        });
+        if (!res.ok) {
+            const responseText = await res.text();
+            console.warn('%c[sendLiveExamToServer] ❌ HTTP', 'color: red', res.status, ':', responseText);
+        } else {
+            const json = await res.json();
+            console.log('%c[sendLiveExamToServer] ✅ HTTP 200', 'color: green', json);
+        }
+    } catch (err) {
+        console.warn('%c[sendLiveExamToServer] ❌ Exception:', 'color: red', err.message || err);
+    }
+}
+
 var db = {
     subjects: [{ name: "Pendidikan Agama", locked: false }, { name: "Bahasa Indonesia", locked: false }, { name: "Matematika", locked: false }, { name: "IPA", locked: false }, { name: "IPS", locked: false }, { name: "Bahasa Inggris", locked: false }],
     rombels: ["VII", "VIII", "IX"],
@@ -3536,6 +3565,7 @@ window.editRaportScore = async function(studentId, mapel) {
         text: `Mata Pelajaran: ${mapel}`,
         input: 'number',
         inputValue: Number(result.score).toFixed(1),
+
         inputAttributes: {
             min: 0,
             max: 100,
