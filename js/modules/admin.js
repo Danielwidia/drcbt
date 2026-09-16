@@ -952,9 +952,20 @@ function showAdminSection(sec) {
     });
 
     if (sec === 'overview') {
-        renderUserLogs();
+        updateStats();
+        fetchAndMerge();
+        fetchIPs();
+        if (adminStatsPollInterval) clearInterval(adminStatsPollInterval);
+        adminStatsPollInterval = setInterval(async () => {
+            await updateStats();
+            await fetchAndMerge();
+        }, 5000);
+    } else {
+        if (adminStatsPollInterval) {
+            clearInterval(adminStatsPollInterval);
+            adminStatsPollInterval = null;
+        }
     }
-
     if (sec === 'banksoal') {
         (async () => {
             await ensureDataLoaded('questions');
@@ -1014,9 +1025,13 @@ function showAdminSection(sec) {
     }
     if (sec === 'overview') {
         updateStats();
+        fetchAndMerge();
         fetchIPs();
         if (adminStatsPollInterval) clearInterval(adminStatsPollInterval);
-        adminStatsPollInterval = setInterval(updateStats, 5000);
+        adminStatsPollInterval = setInterval(async () => {
+            await updateStats();
+            await fetchAndMerge();
+        }, 5000);
     } else {
         if (adminStatsPollInterval) {
             clearInterval(adminStatsPollInterval);
