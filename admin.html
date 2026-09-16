@@ -24,7 +24,6 @@
     <script src="js/modules/admin.js"></script>
     <script src="js/modules/guru.js"></script>
     <script src="js/modules/quizz.js"></script>
-    <script src="fix-corrupted-results.js"></script>
 </head>
 
 <body class="bg-slate-50 min-h-screen">
@@ -2001,7 +2000,7 @@
                 <div class="absolute inset-0 rounded-full border-4 border-rose-500 rounded-full border-t-transparent animate-spin">
                 </div>
                 <div class="absolute inset-0 flex items-center justify-center text-white">
-                    <i class="fas fa-robot text-3xl animate-pulse"></i>
+                    <i class="fas fa-spinner text-xl text-sky-600 animate-pulse"></i>
                 </div>
             </div>
             <h3 class="text-xl font-bold text-slate-800 mb-2">AI sedang berpikir...</h3>
@@ -2165,11 +2164,7 @@
                     <strong>diberhentikan dan nilai dikirim</strong> apa adanya.
                 </p>
                 <button onclick="closeCheatWarning()"
-                    class="w-full py-4 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 shadow-xl shadow-red-200 transition-all uppercase tracking-widest">SAYA
-                    MENGERTI</button>
-            </div>
-        </div>
-    </div>
+                    class="w-full py-4 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 shadow-xl shadow-red-200 transition-all
 
     <!-- Loading Overlay -->
     <div id="loading-overlay"
@@ -2356,14 +2351,14 @@
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Jawaban
                         Benar</label>
                     <div class="flex gap-2" id="quizz-correct-group">
-                        <button type="button" onclick="setQuizzCorrect(0)" data-idx="0"
-                            class="quizz-c-btn flex-1 py-3 rounded-xl font-bold text-sm border-2 border-slate-200 text-slate-400 hover:border-sky-400 hover:text-sky-600 transition-all">A</button>
-                        <button type="button" onclick="setQuizzCorrect(1)" data-idx="1"
-                            class="quizz-c-btn flex-1 py-3 rounded-xl font-bold text-sm border-2 border-slate-200 text-slate-400 hover:border-indigo-400 hover:text-indigo-600 transition-all">B</button>
-                        <button type="button" onclick="setQuizzCorrect(2)" data-idx="2"
-                            class="quizz-c-btn flex-1 py-3 rounded-xl font-bold text-sm border-2 border-slate-200 text-slate-400 hover:border-violet-400 hover:text-violet-600 transition-all">C</button>
-                        <button type="button" onclick="setQuizzCorrect(3)" data-idx="3"
-                            class="quizz-c-btn flex-1 py-3 rounded-xl font-bold text-sm border-2 border-slate-200 text-slate-400 hover:border-amber-400 hover:text-amber-600 transition-all">D</button>
+                        <button onclick="setQuizzCorrect(0)" class="c-btn flex-1 py-3 border-2 rounded-xl font-bold"
+                            data-idx="0">A</button>
+                        <button onclick="setQuizzCorrect(1)" class="c-btn flex-1 py-3 border-2 rounded-xl font-bold"
+                            data-idx="1">B</button>
+                        <button onclick="setQuizzCorrect(2)" class="c-btn flex-1 py-3 border-2 rounded-xl font-bold"
+                            data-idx="2">C</button>
+                        <button onclick="setQuizzCorrect(3)" class="c-btn flex-1 py-3 border-2 rounded-xl font-bold"
+                            data-idx="3">D</button>
                     </div>
                     <input type="hidden" id="quizz-correct-val" value="0">
                 </div>
