@@ -73,6 +73,10 @@ async function saveFullDbToSupabase(dbObj) {
 
     const merged = { ...current, ...dbObj };
 
+    // Hasil ujian bersifat canonical di tabel cbt_results. Jangan menyimpan stale results
+    // lagi di cbt_database.data.results karena itu akan muncul kembali saat browser reload.
+    delete merged.results;
+
     // Defensive check: If current has collections and dbObj omitted them (undefined/non-array), preserve current.
     // Note: Do NOT overwrite with current if dbObj explicitly provided an array (even if empty, e.g. when all items are deleted).
     if (Array.isArray(current.students) && current.students.length > 0) {
@@ -264,7 +268,9 @@ async function getAllResults() {
     const sb = getSupabase();
     const { data, error } = await sb.from('cbt_results').select('data').order('created_at', { ascending: false });
     if (error) throw new Error('getAllResults error: ' + error.message);
-    return (data || []).map(r => dec(r.data));
+    return (data || [])
+        .map(r => dec(r.data))
+        .filter(r => r && !r.deleted);
 }
 
 async function getResults(options = {}) {
@@ -279,7 +285,9 @@ async function getResults(options = {}) {
     query = query.range(offset, offset + limit - 1);
     const { data, error } = await query;
     if (error) throw new Error('getResults error: ' + error.message);
-    return (data || []).map(r => dec(r.data));
+    return (data || [])
+        .map(r => dec(r.data))
+        .filter(r => r && !r.deleted);
 }
 
 async function getResultsCount(options = {}) {
@@ -306,11 +314,34 @@ async function upsertResult(r) {
         data: enc(r),
         created_at: dateVal
     };
-    const { data: existing } = await sb.from('cbt_results').select('id')
-        .match({ student_id: record.student_id, mapel: record.mapel, rombel: record.rombel, date: record.date })
-        .maybeSingle();
+
+    // Use the JSON payload as a fallback match key because older records may have
+    // slightly different field formatting or the browser may send a deleted record
+    // without an exact row-level date match.
+    let { data: rows, error: selectError } = await sb.from('cbt_results').select('id, data, student_id, mapel, rombel, date');
+    if (selectError) throw new Error('upsertResult select error: ' + selectError.message);
+
+    const existing = (rows || []).find(row => {
+        const rowData = dec(row.data) || {};
+        const rowStudent = String(row.student_id ?? rowData.studentId ?? '').trim();
+        const rowMapel = String(row.mapel ?? rowData.mapel ?? '').trim();
+        const rowRombel = String(row.rombel ?? rowData.rombel ?? '').trim();
+        const rowDate = String(row.date ?? rowData.date ?? '').trim();
+        const targetStudent = String(record.student_id || rowData.studentId || '').trim();
+        const targetMapel = String(record.mapel || rowData.mapel || '').trim();
+        const targetRombel = String(record.rombel || rowData.rombel || '').trim();
+        const targetDate = String(record.date || rowData.date || '').trim();
+
+        if (targetStudent && rowStudent && targetStudent !== rowStudent) return false;
+        if (targetMapel && rowMapel && targetMapel !== rowMapel) return false;
+        if (targetRombel && rowRombel && targetRombel !== rowRombel) return false;
+        if (targetDate && rowDate && targetDate !== rowDate) return false;
+        return Boolean(targetStudent || targetMapel || targetRombel || targetDate);
+    });
+
     if (existing) {
-        const { error } = await sb.from('cbt_results').update({ score: record.score, data: record.data }).eq('id', existing.id);
+        const { error } = await sb.from('cbt_results').update({ score: record.score, data: record.data, date: record.date, created_at: record.created_at })
+            .eq('id', existing.id);
         if (error) throw new Error('upsertResult update error: ' + error.message);
     } else {
         const { error } = await sb.from('cbt_results').insert(record);
@@ -320,14 +351,39 @@ async function upsertResult(r) {
 
 async function deleteResult(studentId, mapel, rombel, date) {
     const sb = getSupabase();
-    const { error } = await sb.from('cbt_results').delete()
-        .match({ student_id: studentId, mapel, rombel, date });
+    const studentKey = String(studentId || '').trim();
+    const mapelKey = String(mapel || '').trim();
+    const rombelKey = String(rombel || '').trim();
+    const dateKey = date ? String(date).trim() : '';
+
+    const { data: rows, error: selectError } = await sb.from('cbt_results').select('id, data, student_id, mapel, rombel, date');
+    if (selectError) throw new Error('deleteResult select error: ' + selectError.message);
+    const toDelete = (rows || []).filter(row => {
+        const rowData = dec(row.data) || {};
+        const rowStudent = String(row.student_id ?? rowData.studentId ?? '').trim();
+        const rowMapel = String(row.mapel ?? rowData.mapel ?? '').trim();
+        const rowRombel = String(row.rombel ?? rowData.rombel ?? '').trim();
+        const rowDate = String(row.date ?? rowData.date ?? '').trim();
+
+        if (studentKey && rowStudent && studentKey !== rowStudent) return false;
+        if (mapelKey && rowMapel && mapelKey !== rowMapel) return false;
+        if (rombelKey && rowRombel && rombelKey !== rowRombel) return false;
+        if (dateKey && rowDate && dateKey !== rowDate) return false;
+
+        // If only one of the identifiers is present, don't delete unrelated entries.
+        return Boolean((studentKey && rowStudent) || (mapelKey && rowMapel) || (rombelKey && rowRombel) || (dateKey && rowDate));
+    });
+
+    const ids = toDelete.map(r => r.id).filter(Boolean);
+    if (!ids.length) return;
+
+    const { error } = await sb.from('cbt_results').delete().in('id', ids);
     if (error) throw new Error('deleteResult error: ' + error.message);
 }
 
 async function setAllResults(resultsArr) {
-    const toDelete = resultsArr.filter(r => r.deleted === true);
-    const active = resultsArr.filter(r => r.deleted !== true);
+    const toDelete = (resultsArr || []).filter(r => r && r.deleted === true);
+    const active = (resultsArr || []).filter(r => !(r && r.deleted === true));
     for (const r of toDelete) {
         await deleteResult(r.studentId || '', r.mapel || '', r.rombel || '', r.date || '');
     }

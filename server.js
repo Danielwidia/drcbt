@@ -197,10 +197,32 @@ function updateRealtimeState(type, teacherId = null) {
 function mergeResults(existing = [], incoming = []) {
     const map = new Map();
     const key = r => `${r.studentId || ''}::${r.mapel || ''}::${r.rombel || ''}::${r.date || ''}`;
+
     existing.forEach(r => map.set(key(r), r));
     incoming.forEach(r => {
         const k = key(r);
-        map.set(k, map.has(k) ? Object.assign({}, map.get(k), r) : r);
+        if (!map.has(k)) {
+            map.set(k, r);
+            return;
+        }
+        const current = map.get(k);
+        const currentTs = current.updatedAt || Date.parse(current.date || '') || 0;
+        const incomingTs = r.updatedAt || Date.parse(r.date || '') || 0;
+
+        if (incomingTs > currentTs) {
+            map.set(k, Object.assign({}, current, r));
+            return;
+        }
+        if (incomingTs < currentTs) {
+            return;
+        }
+
+        if (current.deleted || r.deleted) {
+            map.set(k, Object.assign({}, current, r, { deleted: true }));
+            return;
+        }
+
+        map.set(k, Object.assign({}, current, r));
     });
     return Array.from(map.values());
 }
@@ -266,7 +288,7 @@ async function extractTextFromImage(base64Data, mimeType) {
                         contents: [{
                             parts: [
                                 { text: prompt },
-                                { inline_data: { mime_type: mimeType, data: base64Data } }
+                                { inline_data: { mime_type: mimeType, data: base64Image } }
                             ]
                         }]
                     })
@@ -594,7 +616,7 @@ function fullNormalizeQuestion(q, mapel, rombel) {
         }
 
         if ((normalized.answers.length === 0 || normalized.answers.every(a => !a || a.trim() === '')) && Array.isArray(normalized.options) && normalized.options.length > 0) {
-            normalized.options = normalized.options.filter(opt => !/^[A-Ea-e]?\s*[\.\s]*\d+[-\s]*[A-Ea-e](?:[,\s]+\d+[-\s]*[A-Ea-e])*$/i.test(String(opt).trim()));
+            normalized.options = normalized.options.filter(opt => !/^[A-Ea-e]?\s*[\.\s]*\d+[-\s]*[A-Ea-e](?:[,\s]+\d+[-\s]*[A-E])*$/i.test(String(opt).trim()));
         }
 
         const isSelectedPattern = str => /^[A-E]?[-\.\s]*\d+[-\s]*[A-E](?:[,\s]+\d+[-\s]*[A-E])*$/i.test(String(str).trim());
@@ -1236,7 +1258,7 @@ app.post('/api/admin/config', async (req, res) => {
 // ─── API: Database (Metadata Only by default in MySQL) ────────────────────────
 app.get('/api/db', async (req, res) => {
     try {
-        const loadAll = req.query.full === 'true';
+        const loadAll = true;
         const data = await readDB(loadAll);
         if (data) {
             // Ensure array properties exist for frontend compatibility
@@ -1573,7 +1595,7 @@ app.post('/api/live-exam', async (req, res) => {
     try {
         const exam = req.body;
         console.log('[POST /api/live-exam] Received:', { studentId: exam?.studentId, mapel: exam?.mapel });
-        if (!exam || typeof exam !== 'object') {
+        if (!exam || typeof exam !== 'object' || !exam.studentId || !exam.mapel) {
             console.warn('[POST /api/live-exam] Invalid exam object');
             return res.status(400).json({ error: 'Object required' });
         }
@@ -1639,30 +1661,7 @@ app.post('/api/import-word', upload.single('file'), async (req, res) => {
         console.log('📋 Metadata:', metadata);
 
         const result = await parseWordDocument(req.file.buffer, metadata);
-        console.log('📊 Parse result:', { success: result.success, count: result.count, error: result.error });
-
-        if (!result.success) {
-            console.log('❌ Parsing failed:', result.error);
-            return res.status(400).json({ error: result.error });
-        }
-
-        let addedCount = 0;
-        for (const q of result.questions) {
-            try {
-                sqlDb.addQuestion(q);
-                addedCount++;
-            } catch (err) {
-                console.error('[IMPORT WORD] Failed to add individual question:', err.message);
-            }
-        }
-
-        console.log(`✅ Successfully imported ${addedCount} questions.`);
-        return res.json({
-            ok: true,
-            imported: result.count,
-            questions: result.questions,
-            warnings: result.warnings || []
-        });
+        console.log('📊 Parse result:', { success: result.success, count: result.count, });
     } catch (e) {
         console.error('❌ POST /api/import-word error:', e.message);
         console.error('❌ Stack trace:', e.stack);
@@ -1977,15 +1976,7 @@ async function callGeminiAI(prompt, teacherId = null) {
         { name: 'gemini-2.5-pro', version: 'v1beta' },
         { name: 'gemini-2.0-flash', version: 'v1' },
         { name: 'gemini-1.5-flash', version: 'v1' },
-        { name: 'gemini-1.5-flash-latest', version: 'v1' },
-        { name: 'gemini-1.5-flash-latest', version: 'v1beta' },
-        { name: 'gemini-1.5-flash-8b', version: 'v1' },
-        { name: 'gemini-2.0-flash-lite-preview-02-05', version: 'v1' },
-        { name: 'gemini-2.0-flash-lite-preview-02-05', version: 'v1beta' },
-        { name: 'gemini-1.5-pro', version: 'v1' },
-        { name: 'gemini-1.5-pro-latest', version: 'v1' },
-        { name: 'gemini-1.5-pro-latest', version: 'v1beta' },
-        { name: 'gemini-1.0-pro', version: 'v1' }
+        { name: 'gemini-1.5-pro', version: 'v1' }
     ];
 
     // If a preferred model is selected, move all matching variants to the very top
@@ -2635,7 +2626,7 @@ app.post('/api/generate-ai', async (req, res) => {
     prompt += 'SANGAT PENTING: Untuk soal pilihan ganda biasa (type: "single") dan pilihan ganda kompleks (type: "multiple"), jumlah opsi jawaban WAJIB sebanyak 4 buah opsi (A, B, C, D). Tidak boleh lebih atau kurang. ';
     prompt += 'Untuk soal pilihan ganda kompleks (type: "multiple"), gunakan format visual "[ ] kalimat" untuk opsi-opsinya dalam output teks/HTML, namun dalam data JSON "correct" tetap sebagai array indeks (misal: [0, 2]). ';
     prompt += 'Sangat penting: Untuk soal PG Kompleks, berikan TEPAT 4 opsi pilihan (A, B, C, D) dan pastikan ada 2 atau 3 jawaban yang benar. ';
-    prompt += 'Contoh JSON: {"type":"multiple","text":"Pertanyaan?","options":["[ ] Opsi A","[ ] Opsi B","[ ] Opsi C","[ ] Opsi D"],"correct":[0,2],"images":["url_gambar_jika_ada"]}. ';
+    prompt += 'Contoh JSON: {"type":"multiple","text":"Pertanyaan?","options":["[ ] A","[ ] B","[ ] C","[ ] D"],"correct":[0,2],"images":["url_gambar_jika_ada"]}. ';
     prompt += 'SANGAT PENTING untuk soal benar/salah (type: "tf"): Field "text" HANYA berisi instruksi (misal: "Tentukan apakah pernyataan berikut Benar atau Salah:"), dan SEMUA pernyataan yang akan dinilai WAJIB masuk ke array "options". Secara default buat 3 pernyataan per soal, namun 1 atau 2 pernyataan juga diperbolehkan. Field "correct" berisi array boolean (true/false) sesuai urutan pernyataan di options. Contoh 3 pernyataan: {"type":"tf","text":"Pilihlah Benar atau Salah:","options":["Pernyataan 1","Pernyataan 2","Pernyataan 3"],"correct":[true,false,true]}. Contoh 1 pernyataan: {"type":"tf","text":"Pilihlah Benar atau Salah:","options":["Pernyataan 1"],"correct":[true]}. JANGAN meletakkan pernyataan di dalam field "text".';
     prompt += 'Untuk soal menjodohkan (matching) SANGAT PENTING: JANGAN gunakan opsi A, B, C, D atau skema pilihan ganda (seperti 1-A, 2-B). Soal menjodohkan WAJIB menggunakan "questions" sebagai array pertanyaan kiri, "answers" sebagai array jawaban kanan (termasuk pengecoh), dan "correct" sebagai array string jawaban yang benar sesuai urutan questions. ';
     prompt += 'Contoh format menjodohkan: {"type":"matching","questions":["Pantun","Gurindam"],"answers":["Rima a-b-a-b","Rima a-a","Pengecoh"],"correct":["Rima a-b-a-b","Rima a-a"]}. ';
@@ -2677,7 +2668,7 @@ app.post('/api/generate-ai', async (req, res) => {
                     }
                     continue;
                 }
-                if (/^(?:benar|salah|true|false|ya|tidak|yes|no)\b/i.test(line)) continue;
+                if (/^(?:benar|salah|true|false|ya|tidak|yes|no|pilihan|option)\b/i.test(line)) continue;
                 const numbered = line.replace(/^[0-9]+\.\s*/, '').replace(/^[-*]\s*/, '').trim();
                 statements.push(numbered);
             }
@@ -2933,7 +2924,7 @@ SANGAT PENTING:
                 tipeAktivitas = 'Jenis: LKPD Diskusi & Refleksi. Berisi pertanyaan pemandu diskusi, aktivitas brainstorming, dan refleksi pemahaman siswa. Fokus pada pengembangan pemikiran kritis melalui dialog dan tukar pendapat.';
             } else if (formatLKPD === 'eksperimen') {
                 tipeAktivitas = 'Jenis: LKPD Eksperimen/Praktikum. Berisi prosedur percobaan yang jelas, tabel pengamatan, analisis hasil, dan pertanyaan yang mendorong siswa menemukan konsep. Sertakan alat dan bahan yang diperlukan.';
-            } else if (formatLKPD === 'proyek') {
+                       } else if (formatLKPD === 'proyek') {
                 tipeAktivitas = 'Jenis: LKPD Berbasis Proyek. Berisi deskripsi proyek, langkah-langkah pengerjaan, kriteria keberhasilan, dan hasil yang diharapkan. Dorong kolaborasi dan kreativitas siswa dalam menghasilkan produk nyata.';
             } else if (formatLKPD === 'pemecahan') {
                 tipeAktivitas = 'Jenis: LKPD Pemecahan Masalah. Berisi studi kasus atau masalah nyata, pertanyaan analitis bertingkat, panduan strategi pemecahan, dan aplikasi solusi. Fokus pada HOTS (Higher Order Thinking Skills).';
@@ -3416,7 +3407,6 @@ app.post('/api/teacher/remove-api-key', async (req, res) => {
     }
 });
 
-// ─── API: Teacher API Keys (Get) ──────────────────────────────────────────
 app.get('/api/teacher/api-keys', async (req, res) => {
     const { teacherId } = req.query;
 
@@ -3491,7 +3481,7 @@ app.get('/api/teacher/realtime-stats', async (req, res) => {
 
         const globalTotal = geminiKeys.length + openaiKeys.length;
 
-        return res.json({
+        res.json({
             ok: true,
             timestamp: new Date().toISOString(),
             teacherKeys: {
@@ -4295,9 +4285,6 @@ const handleExit = () => {
     console.log('\n[EXIT] Menutup aplikasi...');
     process.exit();
 };
-
-process.on('SIGINT', handleExit);
-process.on('SIGTERM', handleExit);
 
 process.on('SIGINT', handleExit);
 process.on('SIGTERM', handleExit);
