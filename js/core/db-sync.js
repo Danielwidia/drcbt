@@ -44,7 +44,7 @@ async function loadLocalDb() {
     try {
         const raw = await idbGet(DB_KEY);
         if (raw) {
-            const loaded = JSON.parse(raw);
+            const loaded = typeof raw === 'string' ? JSON.parse(raw) : raw;
             console.log('[loadLocalDb] Loaded from IDB, activeExams count:', loaded.activeExams?.length || 0);
             return loaded;
         }
@@ -75,8 +75,8 @@ async function saveLocalDb() {
         console.warn('[saveLocalDb] IDB save failed:', e.message || e);
     }
     try {
-        localStorage.setItem(DB_KEY, Date.now());
-        console.log('[saveLocalDb] Updated localStorage timestamp');
+        localStorage.setItem(DB_KEY, JSON.stringify(db));
+        console.log('[saveLocalDb] Updated localStorage snapshot');
     } catch (e) {
         console.warn('[saveLocalDb] localStorage update failed:', e.message);
     }

@@ -1544,9 +1544,19 @@ async function renderAdminResults() {
     const fromTs = from ? new Date(from + 'T00:00:00').getTime() : null;
     const toTs = to ? new Date(to + 'T23:59:59').getTime() : null;
 
+    const isValidResult = (r) => {
+        if (!r) return false;
+        if (r.mapel === undefined || r.mapel === null || r.mapel === '' || String(r.mapel).trim() === 'undefined') return false;
+        if (r.rombel === undefined || r.rombel === null || r.rombel === '' || String(r.rombel).trim() === 'undefined') return false;
+        if (r.studentName === undefined || r.studentName === null || r.studentName === '' || String(r.studentName).trim() === 'undefined') return false;
+        if (r.studentId === undefined || r.studentId === null || r.studentId === '') return false;
+        return true;
+    };
+
     const rows = db.results
         .map((r, i) => ({ r, i }))
         .filter(({ r }) => !r.deleted)
+        .filter(({ r }) => isValidResult(r))
         .filter(({ r }) => {
             const rombelFilter = document.getElementById('results-filter-rombel')?.value;
             const mapelFilter = document.getElementById('results-filter-mapel')?.value;
@@ -1578,9 +1588,9 @@ async function renderAdminResults() {
 
             return `
                 <tr>
-                    <td class="px-6 py-4 font-bold">${r.studentName}</td>
-                    <td class="px-6 py-4 text-xs">${r.rombel}</td>
-                    <td class="px-6 py-4 text-xs font-medium">${r.mapel}</td>
+                    <td class="px-6 py-4 font-bold">${String(r.studentName || '-').trim() || '-'}</td>
+                    <td class="px-6 py-4 text-xs">${String(r.rombel || '-').trim() || '-'}</td>
+                    <td class="px-6 py-4 text-xs font-medium">${String(r.mapel || '-').trim() || '-'}</td>
                     <td class="px-6 py-4 text-xs">${r.date ? new Date(r.date).toLocaleString() : '-'}</td>
                     <td class="px-6 py-4 text-center">
                         <span class="font-black text-sky-600">${scoreDisplay}</span>
@@ -1910,4 +1920,44 @@ async function syncAdminLiveState() {
         return false;
     }
 }
+
+// ─── Bersihkan Hasil Ujian yang Invalid/Corrupted (undefined fields) ───────────
+function cleanCorruptedResults() {
+    const corruptedResults = (db.results || []).filter(r => {
+        if (r.deleted) return false;
+        const hasUndefinedName = !r.studentName || String(r.studentName).trim() === 'undefined';
+        const hasUndefinedRombel = !r.rombel || String(r.rombel).trim() === 'undefined';
+        const hasUndefinedMapel = !r.mapel || String(r.mapel).trim() === 'undefined';
+        const hasUndefinedId = !r.studentId || String(r.studentId).trim() === 'undefined';
+        return hasUndefinedName || hasUndefinedRombel || hasUndefinedMapel || hasUndefinedId;
+    });
+    if (corruptedResults.length === 0) {
+        alert('✅ Tidak ada hasil ujian yang corrupt. Semua data valid!');
+        return;
+    }
+    if (!confirm(`⚠️ Akan menghapus ${corruptedResults.length} hasil ujian yang corrupt/undefined dari database.\n\nLanjutkan?`)) return;
+    const now = Date.now();
+    let cleanedCount = 0;
+    db.results = (db.results || []).map(r => {
+        if (!r || r.deleted) return r;
+        const hasUndefinedName = !r.studentName || String(r.studentName).trim() === 'undefined';
+        const hasUndefinedRombel = !r.rombel || String(r.rombel).trim() === 'undefined';
+        const hasUndefinedMapel = !r.mapel || String(r.mapel).trim() === 'undefined';
+        const hasUndefinedId = !r.studentId || String(r.studentId).trim() === 'undefined';
+        if (hasUndefinedName || hasUndefinedRombel || hasUndefinedMapel || hasUndefinedId) {
+            cleanedCount++;
+            return { ...r, deleted: true, updatedAt: now, cleanedReason: 'Corrupted: undefined fields' };
+        }
+        return r;
+    });
+    if (cleanedCount > 0) {
+        loadedCollections.results = true;
+        save();
+        updateCompletionCharts();
+        renderAdminResults();
+        alert(`✅ SUKSES!\n\n${cleanedCount} hasil ujian corrupt telah dibersihkan dan disimpan ke server.`);
+    }
+}
+
+window.cleanCorruptedResults = cleanCorruptedResults;
 

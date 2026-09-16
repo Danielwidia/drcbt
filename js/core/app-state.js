@@ -234,12 +234,14 @@ function mergeResults(localArr = [], serverArr = []) {
             return;
         }
 
+        // Tombstone deletion must win on equal timestamps to prevent resurrecting deleted rows
+        if (existing.deleted || r.deleted) {
+            map.set(key, Object.assign({}, existing, r, { deleted: true }));
+            return;
+        }
+
         // equal timestamp: maximize details and preserve deletion flag
-        if (!existing.deleted && r.deleted) {
-            map.set(key, Object.assign({}, existing, r));
-        } else if (existing.deleted && !r.deleted) {
-            map.set(key, Object.assign({}, existing, r));
-        } else if (!hasDetails(existing) && hasDetails(r)) {
+        if (!hasDetails(existing) && hasDetails(r)) {
             map.set(key, Object.assign({}, existing, r));
         }
     });
@@ -678,13 +680,63 @@ async function save(options = {}) {
 
             console.log(`[SAVE] Payload size: ${bodySize.toFixed(2)} MB`);
 
-            // Simpan seluruh database lokal ke server dalam satu panggilan.
-            const res = await fetch(getApiBaseUrl() + '/api/db', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: jsonBody
-            });
-            if (!res.ok) throw new Error('Gagal sync database lokal ke server');
+            // If payload is large (likely causing 413 on some hosts),
+            // send metadata (dbOnly) to /api/db and send results in smaller batches
+            if (bodySize > 0.9 && Array.isArray(payloadToSync.results) && payloadToSync.results.length > 0) {
+                // Send DB without results first
+                const { results, ...dbOnly } = payloadToSync;
+                const dbJson = JSON.stringify(dbOnly);
+                const resMeta = await fetch(getApiBaseUrl() + '/api/db', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: dbJson
+                });
+                if (!resMeta.ok) throw new Error('Gagal sync metadata ke server');
+
+                // Helper to send results in batches sized to stay under ~500KB
+                const sendResultsBatches = async (allResults) => {
+                    const maxBytes = 500 * 1024; // 500 KB
+                    let batch = [];
+                    for (const r of allResults) {
+                        batch.push(r);
+                        const size = JSON.stringify(batch).length;
+                        if (size >= maxBytes) {
+                            const ok = await postResultsBatch(batch);
+                            if (!ok) throw new Error('Gagal mengirim batch results');
+                            batch = [];
+                        }
+                    }
+                    if (batch.length > 0) {
+                        const ok = await postResultsBatch(batch);
+                        if (!ok) throw new Error('Gagal mengirim batch results');
+                    }
+                };
+
+                const postResultsBatch = async (batchArray) => {
+                    try {
+                        const resBatch = await fetch(getApiBaseUrl() + '/api/results', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(batchArray)
+                        });
+                        return resBatch.ok;
+                    } catch (e) {
+                        console.warn('[SAVE] postResultsBatch error:', e.message || e);
+                        return false;
+                    }
+                };
+
+                await sendResultsBatches(payloadToSync.results);
+
+            } else {
+                // Simpan seluruh database lokal ke server dalam satu panggilan.
+                const res = await fetch(getApiBaseUrl() + '/api/db', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: jsonBody
+                });
+                if (!res.ok) throw new Error('Gagal sync database lokal ke server');
+            }
 
             serverSaveSuccess = true;
             console.log('Database berhasil disimpan ke server');
@@ -2512,7 +2564,7 @@ async function runAiCorrection(resultIdx, qIdx) {
                         <div class="flex items-center gap-2 flex-wrap">
                             <label class="text-xs text-slate-500 font-semibold">Skor AI: <strong class="text-violet-700">${score.toFixed(1)}/5</strong> &nbsp;|&nbsp; Ubah:</label>
                             <input type="number" id="ai-essay-score-input-${resultIdx}-${qIdx}" min="0" max="5" step="0.5" value="${score.toFixed(1)}" class="w-20 border border-slate-300 rounded-lg px-2 py-1 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-violet-400">
-                            <button onclick="applyEssayScore(${resultIdx}, ${qIdx}, document.getElementById('ai-essay-score-input-${resultIdx}-${qIdx}').value)" class="px-3 py-1 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-lg transition-colors"><i class="fas fa-check mr-1"></i>Terapkan Skor</button>
+                            <button onclick="applyEssayScore(${resultIdx}, ${qIdx}, document.getElementById('ai-essay-score-input-${resultIdx}-${qIdx}').value)" class="px-3 py-1 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-lg transition-colors"><i class="fas fa-check mr-1"></i>Terapkan</button>
                         </div>`;
             resultEl.classList.remove('hidden');
         }
@@ -3473,10 +3525,6 @@ window._quillQuizz = null;
 
 
 // --- SCHOOL SETTINGS ---
-
-
-
-
 
 
 // Helper: get current school settings (for use in other parts)
