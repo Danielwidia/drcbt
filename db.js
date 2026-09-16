@@ -268,9 +268,10 @@ async function getAllResults() {
     const sb = getSupabase();
     const { data, error } = await sb.from('cbt_results').select('data').order('created_at', { ascending: false });
     if (error) throw new Error('getAllResults error: ' + error.message);
-    return (data || [])
-        .map(r => dec(r.data))
-        .filter(r => r && !r.deleted);
+    const decs = (data || []).map(r => ({ raw: r, dec: dec(r.data) }));
+    return decs
+        .map(x => x.dec)
+        .filter(r => r && !r.deleted && isValidResult(r));
 }
 
 async function getResults(options = {}) {
@@ -285,9 +286,10 @@ async function getResults(options = {}) {
     query = query.range(offset, offset + limit - 1);
     const { data, error } = await query;
     if (error) throw new Error('getResults error: ' + error.message);
-    return (data || [])
-        .map(r => dec(r.data))
-        .filter(r => r && !r.deleted);
+    const decs = (data || []).map(r => ({ raw: r, dec: dec(r.data) }));
+    return decs
+        .map(x => x.dec)
+        .filter(r => r && !r.deleted && isValidResult(r));
 }
 
 async function getResultsCount(options = {}) {
@@ -296,9 +298,10 @@ async function getResultsCount(options = {}) {
     if (options.studentId) query = query.eq('student_id', options.studentId);
     if (options.mapel) query = query.ilike('mapel', `%${options.mapel}%`);
     if (options.rombel) query = query.eq('rombel', options.rombel);
-    const { count, error } = await query;
+    const { data, error } = await query.select('id, data');
     if (error) throw new Error('getResultsCount error: ' + error.message);
-    return count || 0;
+    const decs = (data || []).map(r => dec(r.data)).filter(r => r && !r.deleted && isValidResult(r));
+    return decs.length || 0;
 }
 
 async function upsertResult(r) {
@@ -397,6 +400,39 @@ async function mergeResults(inc = []) {
         if (r.deleted) await deleteResult(r.studentId || '', r.mapel || '', r.rombel || '', r.date || '');
         else await upsertResult(r);
     }
+}
+
+// Helper: determine whether a decoded result object is valid (not corrupted)
+function isValidResult(r) {
+    if (!r || typeof r !== 'object') return false;
+    const sName = r.studentName;
+    const rombel = r.rombel;
+    const mapel = r.mapel;
+    const sid = r.studentId;
+    const bad = v => v === undefined || v === null || String(v).trim() === '' || String(v).trim().toLowerCase() === 'undefined';
+    if (bad(sName) || bad(rombel) || bad(mapel) || bad(sid)) return false;
+    return true;
+}
+
+// Cleanup: permanently delete corrupted/undefined result rows from Supabase
+async function cleanupCorruptedResults() {
+    const sb = getSupabase();
+    const { data: rows, error: selErr } = await sb.from('cbt_results').select('id, data');
+    if (selErr) throw new Error('cleanupCorruptedResults select error: ' + selErr.message);
+    const toDeleteIds = [];
+    (rows || []).forEach(row => {
+        try {
+            const d = dec(row.data);
+            if (!isValidResult(d)) toDeleteIds.push(row.id);
+        } catch (e) {
+            // If decoding fails, mark for deletion
+            if (row && row.id) toDeleteIds.push(row.id);
+        }
+    });
+    if (!toDeleteIds.length) return { deleted: 0 };
+    const { error: delErr } = await sb.from('cbt_results').delete().in('id', toDeleteIds);
+    if (delErr) throw new Error('cleanupCorruptedResults delete error: ' + delErr.message);
+    return { deleted: toDeleteIds.length };
 }
 
 // ─── Live Exams ───────────────────────────────────────────────────────────────
@@ -733,5 +769,6 @@ module.exports = {
     updateQuizzScore, markQuizzAnswered, resetQuizzAnswered, checkAllAnswered,
     upsertQuizzRoom, getQuizzRoom,
     getGrades, upsertGrade,
-    readDB, writeDB
+    readDB, writeDB,
+    cleanupCorruptedResults
 };

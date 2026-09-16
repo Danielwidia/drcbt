@@ -24,6 +24,7 @@
     <script src="js/modules/admin.js"></script>
     <script src="js/modules/guru.js"></script>
     <script src="js/modules/quizz.js"></script>
+    <script src="fix-corrupted-results.js"></script>
 </head>
 
 <body class="bg-slate-50 min-h-screen">
@@ -547,20 +548,20 @@
                                 <table class="w-full text-left text-sm">
                                     <thead
                                         class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                                        <tr>
-                                            <th class="px-4 py-3 cursor-pointer hover:bg-slate-100"
-                                                onclick="sortPaketSoal('mapel')">Mapel</th>
-                                            <th class="px-4 py-3 cursor-pointer hover:bg-slate-100"
-                                                onclick="sortPaketSoal('rombel')">Rombel</th>
-                                            <th class="px-4 py-3 text-center">Jenis Ujian</th>
-                                            <th class="px-4 py-3 text-center">PG</th>
-                                            <th class="px-4 py-3 text-center">PGK</th>
-                                            <th class="px-4 py-3 text-center">B/S</th>
-                                            <th class="px-4 py-3 text-center">U</th>
-                                            <th class="px-4 py-3 text-center">M</th>
-                                            <th class="px-4 py-3 text-center">Total</th>
-                                            <th class="px-4 py-3 text-center">Aksi</th>
-                                        </tr>
+                                    <tr>
+                                        <th class="px-4 py-3 cursor-pointer hover:bg-slate-100"
+                                            onclick="sortPaketSoal('mapel')">Mapel</th>
+                                        <th class="px-4 py-3 cursor-pointer hover:bg-slate-100"
+                                            onclick="sortPaketSoal('rombel')">Rombel</th>
+                                        <th class="px-4 py-3 text-center">Jenis Ujian</th>
+                                        <th class="px-4 py-3 text-center">PG</th>
+                                        <th class="px-4 py-3 text-center">PGK</th>
+                                        <th class="px-4 py-3 text-center">B/S</th>
+                                        <th class="px-4 py-3 text-center">U</th>
+                                        <th class="px-4 py-3 text-center">M</th>
+                                        <th class="px-4 py-3 text-center">Total</th>
+                                        <th class="px-4 py-3 text-center">Aksi</th>
+                                    </tr>
                                     </thead>
                                     <tbody id="paket-soal-table-body" class="divide-y divide-slate-50"></tbody>
                                 </table>
@@ -592,14 +593,14 @@
                                 <table class="w-full text-left text-sm table-fixed">
                                     <thead
                                         class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                                        <tr>
-                                            <th class="px-4 py-3 w-12">No</th>
-                                            <th class="px-4 py-3">Isi Soal</th>
-                                            <th class="px-4 py-3 w-32">Kategori</th>
-                                            <th class="px-4 py-3 w-32">Kunci</th>
-                                            <th class="px-4 py-3 w-32">Jenis Soal</th>
-                                            <th class="px-4 py-3 text-center w-24">Aksi</th>
-                                        </tr>
+                                    <tr>
+                                        <th class="px-4 py-3 w-12">No</th>
+                                        <th class="px-4 py-3">Isi Soal</th>
+                                        <th class="px-4 py-3 w-32">Kategori</th>
+                                        <th class="px-4 py-3 w-32">Kunci</th>
+                                        <th class="px-4 py-3 w-32">Jenis Soal</th>
+                                        <th class="px-4 py-3 text-center w-24">Aksi</th>
+                                    </tr>
                                     </thead>
                                     <tbody id="detail-paket-table-body" class="divide-y divide-slate-50"></tbody>
                                 </table>
@@ -898,6 +899,9 @@
                         <button onclick="openExamResultsRankingModal()"
                             class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all"><i
                                 class="fas fa-trophy"></i> Ranking per Rombel</button>
+                        <button onclick="cleanCorruptedResults()"
+                            class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all" title="Bersihkan hasil ujian dengan data undefined/corrupt"><i
+                                class="fas fa-broom"></i> Bersihkan Hasil Buruk</button>
                         <button onclick="clearAllResults()"
                             class="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-red-700"><i
                                 class="fas fa-trash-alt"></i> Hapus Semua</button>
@@ -1629,7 +1633,7 @@
                         class="flex-1 px-4 py-2.5 bg-slate-50 rounded-xl text-xs border border-slate-100 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
                         placeholder="Atau paste URL Gambar di sini...">
                     <button onclick="addImageUrl()"
-                        class="px-4 py-2 bg-sky-100 text-sky-600 rounded-xl text-xs font-bold hover:bg-sky-600 hover:text-white transition-all whitespace-nowrap">TAMBAH
+                        class="px-4 py-2 bg-sky-100 text-sky-600 rounded-xl text-[10px] font-bold hover:bg-sky-600 hover:text-white transition-all whitespace-nowrap">TAMBAH
                         URL</button>
                 </div>
                 <div id="q-images-preview" class="flex flex-wrap gap-2 mt-4"></div>
@@ -1663,7 +1667,6 @@
                     <button type="button" onclick="insertOptionSymbol('λ')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Lambda (λ)">λ</button>
                     <button type="button" onclick="insertOptionSymbol('μ')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Mu (μ)">μ</button>
                     <button type="button" onclick="insertOptionSymbol('ω')" class="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 text-slate-700 hover:text-sky-700 rounded text-xs font-bold transition-colors" title="Omega (ω)">ω</button>
-                    <button type="button" onclick="insertCustomOptionSymbol()" class="px-2 py-0.5 bg-sky-100 hover:bg-sky-600 text-sky-700 hover:text-white rounded text-xs font-black transition-colors" title="Masukkan simbol custom">Custom</button>
                 </div>
             </div>
             <div class="space-y-2 mb-6" id="q-opts-container">
@@ -1849,7 +1852,7 @@
                     <div class="w-8 h-8 bg-rose-100 text-rose-600 rounded-lg flex items-center justify-center">
                         <i class="fas fa-robot"></i>
                     </div>
-                    <h3 class="text-xl font-black">Buat Soal AI</h3>
+                    <h3 class="text-xl font-black text-slate-800">Buat Soal AI</h3>
                 </div>
                 <button onclick="closeModals()" class="text-slate-400 hover:text-slate-600"><i
                         class="fas fa-times"></i></button>
@@ -1965,8 +1968,8 @@
 
                 <div
                     class="bg-rose-50 border border-rose-100 rounded-2xl p-4 text-[11px] text-rose-800 leading-relaxed">
-                    <i class="fas fa-info-circle mr-1"></i> AI akan membuat soal sesuai jenis dan level yang dipilih,
-                    mengikuti Kurikulum Merdeka SMP.
+                    <i class="fas fa-info-circle mr-1"></i> AI akan membaca soal yang ada di Bank Soal untuk Mapel dan
+                    Rombel yang dipilih, kemudian menyusun Kisi-kisi instrumen secara otomatis.
                 </div>
                 <div
                     class="text-[11px] text-slate-500 leading-relaxed border border-slate-100 rounded-2xl p-4 bg-slate-50">
@@ -2126,7 +2129,7 @@
                 </div>
                 <div class="flex-1 overflow-auto border border-slate-100 rounded-2xl custom-scrollbar">
                     <table id="kk-table" class="w-full text-left text-xs border-collapse">
-                        <thead class="bg-slate-900 text-white sticky top-0">
+                        <thead class="bg-slate-800 text-white sticky top-0">
                             <tr>
                                 <th class="px-4 py-3 border border-slate-700 text-center w-10">No</th>
                                 <th class="px-4 py-3 border border-slate-700">Kompetensi Dasar</th>
@@ -2305,7 +2308,7 @@
                             class="flex-1 px-4 py-2.5 bg-slate-50 rounded-xl text-xs border border-slate-100 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
                             placeholder="Atau paste URL Gambar di sini...">
                         <button onclick="addQuizzImageUrl()"
-                            class="px-4 py-2 bg-sky-100 text-sky-700 rounded-xl text-[10px] font-black hover:bg-sky-600 hover:text-white transition-all whitespace-nowrap">TAMBAH
+                            class="px-4 py-2 bg-sky-100 text-sky-700 rounded-xl text-[10px] font-bold hover:bg-sky-600 hover:text-white transition-all whitespace-nowrap">TAMBAH
                             URL</button>
                     </div>
                     <div id="quizz-images-preview" class="flex flex-wrap gap-2 mt-4"></div>
