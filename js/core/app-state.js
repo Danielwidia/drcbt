@@ -9,6 +9,26 @@ function showLoginForm(type) {
     document.getElementById('auth-modal').classList.add('flex');
 }
 
+function closeModals() {
+    const modalSelector = '[id$="-modal"]';
+    document.querySelectorAll(modalSelector).forEach(modal => {
+        if (!modal) return;
+        modal.classList.remove('flex');
+        modal.classList.add('hidden');
+    });
+
+    const authModal = document.getElementById('auth-modal');
+    if (authModal) {
+        authModal.classList.remove('flex');
+        authModal.classList.add('hidden');
+    }
+
+    const loginError = document.getElementById('login-error');
+    if (loginError) loginError.classList.add('hidden');
+}
+
+window.closeModals = closeModals;
+
 function reloadPage() {
     // Show loading overlay
     const overlay = document.getElementById('loading-overlay');

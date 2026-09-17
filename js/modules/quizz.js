@@ -239,6 +239,12 @@ window.copyApiKey = function (key) {
 // --- QUIZZ MANAGEMENT FUNCTIONS ---
 
 async function openQuizzAiModal() {
+    const modal = document.getElementById('quizz-ai-modal');
+    if (!modal) {
+        console.warn('[Quizz] quizz-ai-modal not found.');
+        return;
+    }
+
     let mapelOpts = '<option value="">--Pilih Mapel--</option>';
     if (db.subjects) {
         db.subjects.forEach(m => {
@@ -267,7 +273,9 @@ async function openQuizzAiModal() {
             } else {
                 rombelsToUse = teacherCombinedRombels(teacher);
             }
-            rombelSelect.innerHTML = '<option value="">--Pilih Rombel--</option>' + rombelsToUse.map(r => `<option value="${r}">${r}</option>`).join('');
+            if (rombelSelect) {
+                rombelSelect.innerHTML = '<option value="">--Pilih Rombel--</option>' + rombelsToUse.map(r => `<option value="${r}">${r}</option>`).join('');
+            }
         };
 
         if (mapelSelect) {
@@ -282,11 +290,14 @@ async function openQuizzAiModal() {
         if (rombelSelect) rombelSelect.innerHTML = rombelOpts;
     }
 
-    document.getElementById('quizz-ai-topic').value = '';
-    document.getElementById('quizz-ai-count').value = '5';
-    document.getElementById('quizz-ai-modal-error').classList.add('hidden');
+    const topicInput = document.getElementById('quizz-ai-topic');
+    const countInput = document.getElementById('quizz-ai-count');
+    const errorEl = document.getElementById('quizz-ai-modal-error');
 
-    const modal = document.getElementById('quizz-ai-modal');
+    if (topicInput) topicInput.value = '';
+    if (countInput) countInput.value = '5';
+    if (errorEl) errorEl.classList.add('hidden');
+
     modal.classList.remove('hidden');
     modal.classList.add('flex');
 }
@@ -444,6 +455,12 @@ function renderQuizzImagePreviews() {
 // === End Quizz Image Helpers ===
 
 async function openQuizzModal(idx = null) {
+    const modal = document.getElementById('quizz-modal');
+    if (!modal) {
+        console.warn('[Quizz] quizz-modal not found.');
+        return;
+    }
+
     let mapelOpts = '<option value="">--Pilih Mapel--</option>';
     if (db.subjects) {
         db.subjects.forEach(m => {
@@ -473,7 +490,9 @@ async function openQuizzModal(idx = null) {
             } else {
                 rombelsToUse = teacherCombinedRombels(teacher);
             }
-            rombelSelect.innerHTML = '<option value="">--Pilih Rombel--</option>' + rombelsToUse.map(r => `<option value="${r}">${r}</option>`).join('');
+            if (rombelSelect) {
+                rombelSelect.innerHTML = '<option value="">--Pilih Rombel--</option>' + rombelsToUse.map(r => `<option value="${r}">${r}</option>`).join('');
+            }
         };
 
         if (mapelSelect) {
@@ -488,26 +507,33 @@ async function openQuizzModal(idx = null) {
         if (rombelSelect) rombelSelect.innerHTML = rombelOpts;
     }
 
-    document.getElementById('quizz-modal-error').classList.add('hidden');
+    const errorEl = document.getElementById('quizz-modal-error');
+    if (errorEl) errorEl.classList.add('hidden');
     window.storedQuizzImages = [];
 
-    // Initialize Quill editors if needed
     setTimeout(() => initQuillEditors(), 50);
 
     if (idx !== null && db.quizzes && db.quizzes[idx]) {
         const q = db.quizzes[idx];
-        document.getElementById('quizz-modal-title').innerText = "Edit Soal Quizz";
-        document.getElementById('quizz-edit-idx').value = idx.toString();
+        const title = document.getElementById('quizz-modal-title');
+        const editIdx = document.getElementById('quizz-edit-idx');
+        if (title) title.innerText = 'Edit Soal Quizz';
+        if (editIdx) editIdx.value = idx.toString();
 
-        mapelSelect.value = q.mapel || '';
-        rombelSelect.value = q.rombel || '';
-        document.getElementById('quizz-question').value = q.question || '';
+        if (mapelSelect) mapelSelect.value = q.mapel || '';
+        if (rombelSelect) rombelSelect.value = q.rombel || '';
+        const questionInput = document.getElementById('quizz-question');
+        if (questionInput) questionInput.value = q.question || '';
         setTimeout(() => setQuillContent('quizz', q.question || ''), 80);
 
-        document.getElementById('quizz-a0').value = q.answers[0] || '';
-        document.getElementById('quizz-a1').value = q.answers[1] || '';
-        document.getElementById('quizz-a2').value = q.answers[2] || '';
-        document.getElementById('quizz-a3').value = q.answers[3] || '';
+        const a0 = document.getElementById('quizz-a0');
+        const a1 = document.getElementById('quizz-a1');
+        const a2 = document.getElementById('quizz-a2');
+        const a3 = document.getElementById('quizz-a3');
+        if (a0) a0.value = q.answers[0] || '';
+        if (a1) a1.value = q.answers[1] || '';
+        if (a2) a2.value = q.answers[2] || '';
+        if (a3) a3.value = q.answers[3] || '';
 
         setQuizzCorrect(q.correct || 0);
 
@@ -515,21 +541,26 @@ async function openQuizzModal(idx = null) {
             window.storedQuizzImages = [...q.images];
         }
     } else {
-        document.getElementById('quizz-modal-title').innerText = "Soal Quizz Baru";
-        document.getElementById('quizz-edit-idx').value = '';
+        const title = document.getElementById('quizz-modal-title');
+        const editIdx = document.getElementById('quizz-edit-idx');
+        if (title) title.innerText = 'Soal Quizz Baru';
+        if (editIdx) editIdx.value = '';
 
-        document.getElementById('quizz-question').value = '';
+        const questionInput = document.getElementById('quizz-question');
+        if (questionInput) questionInput.value = '';
         setTimeout(() => setQuillContent('quizz', ''), 80);
-        document.getElementById('quizz-a0').value = '';
-        document.getElementById('quizz-a1').value = '';
-        document.getElementById('quizz-a2').value = '';
-        document.getElementById('quizz-a3').value = '';
+        const a0 = document.getElementById('quizz-a0');
+        const a1 = document.getElementById('quizz-a1');
+        const a2 = document.getElementById('quizz-a2');
+        const a3 = document.getElementById('quizz-a3');
+        if (a0) a0.value = '';
+        if (a1) a1.value = '';
+        if (a2) a2.value = '';
+        if (a3) a3.value = '';
         setQuizzCorrect(0);
     }
 
     renderQuizzImagePreviews();
-
-    const modal = document.getElementById('quizz-modal');
     modal.classList.remove('hidden');
     modal.classList.add('flex');
 }
@@ -944,8 +975,8 @@ async function openQuizzLeaderboardModal() {
 }
 
 async function fetchQuizzLeaderboard() {
-    const mapel = document.getElementById('leaderboard-filter-mapel').value;
-    const rombel = document.getElementById('leaderboard-filter-rombel').value;
+    const mapel = document.getElementById('leaderboard-filter-mapel')?.value;
+    const rombel = document.getElementById('leaderboard-filter-rombel')?.value;
     const body = document.getElementById('leaderboard-body');
     const table = document.getElementById('leaderboard-table');
     const loading = document.getElementById('leaderboard-loading');
