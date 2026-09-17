@@ -315,56 +315,57 @@
 
                 <!-- Quizz Section -->
                 <div id="admin-quizz" class="hidden admin-section">
-                    <div class="flex flex-col lg:flex-row justify-between gap-4 mb-8">
+                    <div class="flex flex-col gap-6">
+                        <!-- Header -->
                         <div>
                             <h2 class="text-2xl font-black text-slate-800">Manajemen Quizz</h2>
                             <p class="text-slate-400 text-sm">Kelola Soal Games Interaktif</p>
                         </div>
-                        <div
-                            class="flex flex-wrap gap-3 items-end bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
+
+                        <!-- Action Buttons -->
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                             <!-- Main Actions -->
-                            <div class="flex flex-col gap-1.5">
-                                <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Aksi
-                                    Utama</label>
-                                <div class="flex gap-2">
-                                    <button onclick="openQuizzModal()"
-                                        class="px-4 py-2 bg-sky-600 text-white rounded-xl text-xs font-bold transition-all hover:bg-sky-700 hover:shadow-lg hover:shadow-sky-100 flex items-center gap-2">
+                            <div class="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
+                                <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Aksi Utama</label>
+                                <div class="flex flex-col gap-2">
+                                    <button id="btn-open-quizz-modal" onclick="openQuizzModal()"
+                                        class="px-4 py-2 bg-sky-600 text-white rounded-xl text-xs font-bold transition-all hover:bg-sky-700 hover:shadow-lg hover:shadow-sky-100 flex items-center gap-2 justify-center">
                                         <i class="fas fa-plus"></i> Soal Quizz Baru
                                     </button>
                                     <a href="quizz.html" target="_blank"
-                                        class="px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold transition-all hover:bg-purple-700 hover:shadow-lg hover:shadow-purple-100 flex items-center gap-2">
+                                        class="px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold transition-all hover:bg-purple-700 hover:shadow-lg hover:shadow-purple-100 flex items-center gap-2 justify-center">
                                         <i class="fas fa-play"></i> Buka Live Quizz
                                     </a>
-                                    <button onclick="openQuizzLeaderboardModal()"
-                                        class="px-4 py-2 bg-amber-500 text-white rounded-xl text-xs font-bold transition-all hover:bg-amber-600 hover:shadow-lg hover:shadow-amber-100 flex items-center gap-2">
+                                    <button id="btn-open-quizz-leaderboard-modal" onclick="openQuizzLeaderboardModal()"
+                                        class="px-4 py-2 bg-amber-500 text-white rounded-xl text-xs font-bold transition-all hover:bg-amber-600 hover:shadow-lg hover:shadow-amber-100 flex items-center gap-2 justify-center">
                                         <i class="fas fa-trophy"></i> Ranking Kuis
                                     </button>
                                 </div>
                             </div>
-                            <!-- AI Group -->
-                            <div class="flex flex-col gap-1.5">
-                                <label
-                                    class="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Bantuan
-                                    AI</label>
-                                <div class="flex gap-2">
-                                    <button onclick="openQuizzAiModal()"
-                                        class="px-3 py-2 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-xs font-bold transition-all hover:bg-rose-600 hover:text-white flex items-center gap-2">
-                                        <i class="fas fa-robot text-[10px]"></i> Buat Quizz AI
+
+                            <!-- AI Actions -->
+                            <div class="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
+                                <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Bantuan AI</label>
+                                <div class="flex flex-col gap-2">
+                                    <button id="btn-open-quizz-ai-modal" onclick="openQuizzAiModal()"
+                                        class="px-4 py-2 bg-rose-600 text-white rounded-xl text-xs font-bold transition-all hover:bg-rose-700 hover:shadow-lg hover:shadow-rose-100 flex items-center gap-2 justify-center">
+                                        <i class="fas fa-robot"></i> Buat Quizz AI
                                     </button>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div class="flex gap-4 mb-4">
-                        <select id="admin-quizz-filter-mapel" onchange="renderAdminQuizz()"
-                            class="px-4 py-2 bg-white rounded-xl border border-slate-200 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-sky-500">
-                            <option value="">Semua Mapel</option>
-                        </select>
-                        <select id="admin-quizz-filter-rombel" onchange="renderAdminQuizz()"
-                            class="px-4 py-2 bg-white rounded-xl border border-slate-200 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-sky-500">
-                            <option value="">Semua Rombel</option>
-                        </select>
+                        <!-- Filters -->
+                        <div class="flex gap-4">
+                            <select id="admin-quizz-filter-mapel" onchange="renderAdminQuizz()"
+                                class="px-4 py-2 bg-white rounded-xl border border-slate-200 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-sky-500">
+                                <option value="">Semua Mapel</option>
+                            </select>
+                            <select id="admin-quizz-filter-rombel" onchange="renderAdminQuizz()"
+                                class="px-4 py-2 bg-white rounded-xl border border-slate-200 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-sky-500">
+                                <option value="">Semua Rombel</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div class="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-sm">
@@ -2164,7 +2165,12 @@
                     <strong>diberhentikan dan nilai dikirim</strong> apa adanya.
                 </p>
                 <button onclick="closeCheatWarning()"
-                    class="w-full py-4 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 shadow-xl shadow-red-200 transition-all
+                    class="w-full py-4 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 shadow-xl shadow-red-200 transition-all flex items-center justify-center gap-2">
+                    <i class="fas fa-check"></i> OK, LANJUTKAN UJIAN
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- Loading Overlay -->
     <div id="loading-overlay"
@@ -2476,8 +2482,8 @@
             <div class="flex justify-between items-center mb-6">
                 <div class="flex items-center gap-3">
                     <div
-                        class="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center text-2xl">
-                        <i class="fas fa-trophy"></i>
+                        class="w-12 h-12 bg-amber-500 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-amber-200">
+                        <i class="fas fa-trophy text-2xl"></i>
                     </div>
                     <div>
                         <h3 class="text-2xl font-black text-slate-800">Ranking Live Quizz</h3>
