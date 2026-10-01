@@ -1022,3 +1022,97 @@ async function renderAdminQuestions() {
 
 window.renderAdminQuestions = renderAdminQuestions;
 
+let selectedAdminQuestions = new Set();
+window.selectedAdminQuestions = selectedAdminQuestions;
+
+function toggleAdminQuestionSelection(event) {
+    const idx = Number(event.target.dataset.index);
+    if (Number.isNaN(idx)) return;
+    const question = db.questions[idx];
+    if (!question) return;
+
+    if (event.target.checked) {
+        selectedAdminQuestions.add(question);
+    } else {
+        selectedAdminQuestions.delete(question);
+    }
+
+    if (typeof renderAdminQuestions === 'function') renderAdminQuestions();
+}
+
+window.toggleAdminQuestionSelection = toggleAdminQuestionSelection;
+
+function toggleAdminSelectAll(event) {
+    const checked = !!event.target.checked;
+    const fR = document.getElementById('filter-rombel')?.value || 'ALL';
+    const fM = document.getElementById('filter-mapel')?.value || 'ALL';
+
+    const filtered = (Array.isArray(db.questions) ? db.questions : []).filter(q =>
+        (fR === 'ALL' || q.rombel === fR) && (fM === 'ALL' || q.mapel === fM)
+    );
+
+    filtered.forEach(q => {
+        if (checked) selectedAdminQuestions.add(q);
+        else selectedAdminQuestions.delete(q);
+    });
+
+    if (typeof renderAdminQuestions === 'function') renderAdminQuestions();
+}
+
+window.toggleAdminSelectAll = toggleAdminSelectAll;
+
+function deleteSelectedAdminQuestions() {
+    if (selectedAdminQuestions.size === 0) {
+        alert('Pilih soal yang ingin dihapus terlebih dahulu.');
+        return;
+    }
+
+    if (!confirm(`Hapus ${selectedAdminQuestions.size} soal terpilih?`)) return;
+
+    loadedCollections.questions = true;
+    db.questions = db.questions.filter(q => !selectedAdminQuestions.has(q));
+    selectedAdminQuestions.clear();
+    save();
+    if (typeof renderAdminQuestions === 'function') renderAdminQuestions();
+    if (typeof updateStats === 'function') updateStats();
+}
+
+window.deleteSelectedAdminQuestions = deleteSelectedAdminQuestions;
+
+function deleteFilteredQuestions() {
+    const fR = document.getElementById('filter-rombel')?.value || 'ALL';
+    const fM = document.getElementById('filter-mapel')?.value || 'ALL';
+
+    const toDelete = (Array.isArray(db.questions) ? db.questions : []).filter(q =>
+        (fR === 'ALL' || q.rombel === fR) && (fM === 'ALL' || q.mapel === fM)
+    );
+
+    if (toDelete.length === 0) {
+        alert('Tidak ada soal yang sesuai dengan filter saat ini.');
+        return;
+    }
+
+    const rombelLabel = fR === 'ALL' ? 'Semua Rombel' : fR;
+    const mapelLabel = fM === 'ALL' ? 'Semua Mapel' : fM;
+    const msg = `Anda akan menghapus ${toDelete.length} soal dengan filter:\n\n• Rombel: ${rombelLabel}\n• Mapel: ${mapelLabel}\n\nTindakan ini tidak dapat dibatalkan. Lanjutkan?`;
+
+    if (!confirm(msg)) return;
+
+    if (fR === 'ALL' && fM === 'ALL') {
+        if (!confirm(`PERINGATAN: Anda akan menghapus SEMUA ${toDelete.length} soal dari database!\n\nApakah Anda benar-benar yakin?`)) return;
+    }
+
+    loadedCollections.questions = true;
+    db.questions = db.questions.filter(q =>
+        !((fR === 'ALL' || q.rombel === fR) && (fM === 'ALL' || q.mapel === fM))
+    );
+
+    selectedAdminQuestions.clear();
+    save();
+    if (typeof renderAdminQuestions === 'function') renderAdminQuestions();
+    if (typeof updateStats === 'function') updateStats();
+    alert(`${toDelete.length} soal berhasil dihapus.`);
+}
+
+window.deleteFilteredQuestions = deleteFilteredQuestions;
+
