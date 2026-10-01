@@ -745,3 +745,280 @@ async function saveSchedules() {
 
 let adminStatsPollInterval = null;
 
+function switchAdminBankSoalTab(tab) {
+    const paketSection = document.getElementById('banksoal-paket-section');
+    const detailSection = document.getElementById('banksoal-detail-section');
+    const globalSection = document.getElementById('banksoal-global-section');
+    const paketBtn = document.getElementById('banksoal-tab-paket');
+    const detailBtn = document.getElementById('banksoal-tab-detail');
+    const globalBtn = document.getElementById('banksoal-tab-global');
+
+    if (!paketSection || !detailSection || !globalSection || !paketBtn || !detailBtn || !globalBtn) return;
+
+    const hasDetail = !!currentDetailPackage;
+    detailBtn.classList.toggle('hidden', !hasDetail);
+
+    const activateButton = (button) => {
+        button.classList.add('bg-sky-600', 'text-white');
+        button.classList.remove('bg-slate-100', 'text-slate-700');
+    };
+    const deactivateButton = (button) => {
+        button.classList.add('bg-slate-100', 'text-slate-700');
+        button.classList.remove('bg-sky-600', 'text-white');
+    };
+
+    let activeTab = tab;
+    if (activeTab === 'detail' && !hasDetail) {
+        activeTab = 'paket';
+    }
+
+    if (activeTab === 'paket') {
+        paketSection.classList.remove('hidden');
+        detailSection.classList.add('hidden');
+        globalSection.classList.add('hidden');
+        activateButton(paketBtn);
+        deactivateButton(detailBtn);
+        deactivateButton(globalBtn);
+        if (typeof renderAdminPaketSoal === 'function') renderAdminPaketSoal();
+    } else if (activeTab === 'detail') {
+        paketSection.classList.add('hidden');
+        detailSection.classList.remove('hidden');
+        globalSection.classList.add('hidden');
+        deactivateButton(paketBtn);
+        activateButton(detailBtn);
+        deactivateButton(globalBtn);
+        if (typeof renderAdminDetailPaket === 'function') renderAdminDetailPaket();
+    } else {
+        paketSection.classList.add('hidden');
+        detailSection.classList.add('hidden');
+        globalSection.classList.remove('hidden');
+        deactivateButton(paketBtn);
+        deactivateButton(detailBtn);
+        activateButton(globalBtn);
+        if (typeof renderAdminQuestions === 'function') renderAdminQuestions();
+    }
+}
+
+window.switchAdminBankSoalTab = switchAdminBankSoalTab;
+
+function renderAdminPaketSoal() {
+    const tbody = document.getElementById('paket-soal-table-body');
+    if (!tbody) return;
+
+    const questions = Array.isArray(db.questions) ? db.questions : [];
+    const paketMap = new Map();
+
+    questions.forEach((question) => {
+        const mapel = String(question.mapel || 'Unknown');
+        const rombel = String(question.rombel || 'Unknown');
+        const key = `${mapel}||${rombel}`;
+        if (!paketMap.has(key)) {
+            paketMap.set(key, {
+                mapel,
+                rombel,
+                pg: 0,
+                pgk: 0,
+                bs: 0,
+                u: 0,
+                m: 0,
+                total: 0,
+                jenisUjian: question.jenisUjian || 'Umum'
+            });
+        }
+        const row = paketMap.get(key);
+        row.total += 1;
+        if (question.type === 'single') row.pg += 1;
+        else if (question.type === 'multiple') row.pgk += 1;
+        else if (question.type === 'tf') row.bs += 1;
+        else if (question.type === 'text') row.u += 1;
+        else row.m += 1;
+    });
+
+    const rows = Array.from(paketMap.values()).sort((a, b) => {
+        const aText = `${a.mapel} ${a.rombel}`.toLowerCase();
+        const bText = `${b.mapel} ${b.rombel}`.toLowerCase();
+        return aText.localeCompare(bText);
+    });
+
+    if (!rows.length) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="10" class="px-4 py-12 text-center text-slate-500 text-sm">Belum ada paket soal.</td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = rows.map((item) => `
+        <tr class="hover:bg-slate-50 transition-colors">
+            <td class="px-4 py-4 font-bold text-slate-700">${item.mapel}</td>
+            <td class="px-4 py-4 text-slate-600">${item.rombel}</td>
+            <td class="px-4 py-4 text-center">
+                <span class="inline-flex px-2 py-1 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-700">${item.jenisUjian}</span>
+            </td>
+            <td class="px-4 py-4 text-center text-slate-700">${item.pg}</td>
+            <td class="px-4 py-4 text-center text-slate-700">${item.pgk}</td>
+            <td class="px-4 py-4 text-center text-slate-700">${item.bs}</td>
+            <td class="px-4 py-4 text-center text-slate-700">${item.u}</td>
+            <td class="px-4 py-4 text-center text-slate-700">${item.m}</td>
+            <td class="px-4 py-4 text-center font-black text-slate-800">${item.total}</td>
+            <td class="px-4 py-4 text-center">
+                <div class="flex items-center justify-center gap-2">
+                    <button type="button" onclick="currentDetailPackage = { mapel: '${item.mapel}', rombel: '${item.rombel}' }; switchAdminBankSoalTab('detail');" class="p-2 text-sky-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" title="Lihat Detail">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    <button type="button" onclick="if (confirm('Hapus semua soal untuk ${item.mapel} / ${item.rombel}?')) { db.questions = db.questions.filter(q => !(q.mapel === '${item.mapel}' && q.rombel === '${item.rombel}')); save(); renderAdminPaketSoal(); if (currentDetailPackage && currentDetailPackage.mapel === '${item.mapel}' && currentDetailPackage.rombel === '${item.rombel}') { currentDetailPackage = null; switchAdminBankSoalTab('paket'); } }" class="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Hapus Paket">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+window.renderAdminPaketSoal = renderAdminPaketSoal;
+
+function renderAdminDetailPaket() {
+    const tbody = document.getElementById('detail-paket-table-body');
+    const subtitle = document.getElementById('detail-paket-description');
+    if (!tbody || !subtitle) return;
+
+    if (!currentDetailPackage) {
+        subtitle.textContent = 'Pilih sebuah paket soal untuk melihat daftar pertanyaan.';
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="px-4 py-12 text-center text-slate-500 text-sm">Belum ada paket yang dipilih.</td>
+            </tr>
+        `;
+        return;
+    }
+
+    const { mapel, rombel } = currentDetailPackage;
+    const filtered = (Array.isArray(db.questions) ? db.questions : []).filter(q => q.mapel === mapel && q.rombel === rombel);
+    subtitle.textContent = `Mapel ${mapel} • Rombel ${rombel} • ${filtered.length} soal`;
+
+    if (!filtered.length) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="px-4 py-12 text-center text-slate-500 text-sm">Paket soal ini belum memiliki pertanyaan.</td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = filtered.map((q, idx) => {
+        const typeName = { single: 'Pilihan Ganda', multiple: 'PG Kompleks', text: 'Uraian', tf: 'Benar/Salah', matching: 'Menjodohkan' }[q.type || 'single'] || 'Pilihan Ganda';
+        let corrText = '';
+        if (q.type === 'multiple') {
+            corrText = Array.isArray(q.correct) ? q.correct.map(x => ['A', 'B', 'C', 'D'][x] || x).join(',') : (q.correct ?? '-');
+        } else if (q.type === 'text') {
+            corrText = 'Teks';
+        } else if (q.type === 'tf') {
+            corrText = Array.isArray(q.options) ? q.options.map((stmt, i) => `${stmt} (${Array.isArray(q.correct) ? (q.correct[i] ? 'Benar' : 'Salah') : 'Benar/Salah'})`).join(' / ') : 'Benar/Salah';
+        } else if (q.type === 'matching') {
+            corrText = 'Match';
+        } else {
+            corrText = ['A', 'B', 'C', 'D'][q.correct] || q.correct || '-';
+        }
+
+        return `
+            <tr class="hover:bg-slate-50 transition-colors">
+                <td class="px-4 py-4 text-slate-700">${idx + 1}</td>
+                <td class="px-4 py-4 text-slate-700 whitespace-pre-wrap break-words">${(q.text || '').substring(0, 220)}${(q.text || '').length > 220 ? '...' : ''}</td>
+                <td class="px-4 py-4 text-center">
+                    <span class="px-2 py-1 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700">${typeName}</span>
+                </td>
+                <td class="px-4 py-4 text-slate-700 whitespace-pre-wrap break-words">${corrText}</td>
+                <td class="px-4 py-4 text-slate-700">${typeName}</td>
+                <td class="px-4 py-4 text-center">
+                    <div class="flex items-center justify-center gap-1">
+                        <button type="button" onclick="openEditQuestionModal(${db.questions.indexOf(q)})" class="p-2 text-sky-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" title="Edit"><i class="fas fa-edit"></i></button>
+                        <button type="button" onclick="deleteQuestion(${db.questions.indexOf(q)})" class="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Hapus"><i class="fas fa-trash"></i></button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+window.renderAdminDetailPaket = renderAdminDetailPaket;
+
+async function renderAdminQuestions() {
+    await ensureDataLoaded('questions');
+    const tbody = document.getElementById('questions-table-body');
+    if (!tbody) return;
+
+    const rombelFilter = document.getElementById('filter-rombel')?.value || 'ALL';
+    const mapelFilter = document.getElementById('filter-mapel')?.value || 'ALL';
+    const searchTerm = (document.getElementById('search-questions')?.value || '').toLowerCase();
+
+    let filtered = (Array.isArray(db.questions) ? db.questions : []).filter((q) => {
+        const matchesRombel = rombelFilter === 'ALL' || q.rombel === rombelFilter;
+        const matchesMapel = mapelFilter === 'ALL' || q.mapel === mapelFilter;
+        const matchesSearch = !searchTerm || (String(q.text || '')).toLowerCase().includes(searchTerm);
+        return matchesRombel && matchesMapel && matchesSearch;
+    });
+
+    if (!filtered.length) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="px-6 py-12 text-center">
+                    <div class="flex flex-col items-center gap-3">
+                        <i class="fas fa-inbox text-4xl text-slate-300"></i>
+                        <p class="text-slate-500 text-sm">Tidak ada soal ditemukan</p>
+                    </div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = filtered.map((q, idx) => {
+        const originalIndex = db.questions.indexOf(q);
+        const typeName = { single: 'Pilihan Ganda', multiple: 'PG Kompleks', text: 'Uraian', tf: 'Benar/Salah', matching: 'Menjodohkan' }[q.type || 'single'] || 'Pilihan Ganda';
+        let corrText = '';
+        if (q.type === 'multiple') {
+            corrText = Array.isArray(q.correct) ? q.correct.map(x => ['A', 'B', 'C', 'D'][x] || x).join(',') : (q.correct ?? '-');
+        } else if (q.type === 'text') {
+            corrText = 'Teks';
+        } else if (q.type === 'tf') {
+            corrText = Array.isArray(q.options) ? q.options.map((stmt, i) => `${stmt} (${Array.isArray(q.correct) ? (q.correct[i] ? 'Benar' : 'Salah') : 'Benar/Salah'})`).join(' / ') : 'Benar/Salah';
+        } else if (q.type === 'matching') {
+            corrText = 'Match';
+        } else {
+            corrText = ['A', 'B', 'C', 'D'][q.correct] || q.correct || '-';
+        }
+
+        return `
+            <tr class="hover:bg-slate-50 transition-colors">
+                <td class="px-6 py-4 text-center">
+                    <span class="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded">${originalIndex + 1}</span>
+                </td>
+                <td class="px-6 py-4">
+                    <div class="whitespace-pre-wrap break-words font-bold mb-1">${(q.text || '').substring(0, 220)}${(q.text || '').length > 220 ? '...' : ''}</div>
+                </td>
+                <td class="px-6 py-4">
+                    <div class="flex flex-col gap-1 items-start">
+                        <span class="px-3 py-1 bg-sky-100 text-sky-700 rounded-full text-[10px] font-bold">${q.mapel || '-'}</span>
+                        <span class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold">${q.rombel || '-'}</span>
+                    </div>
+                </td>
+                <td class="px-6 py-4">
+                    <span class="whitespace-pre-wrap break-words font-bold text-sky-700 text-sm inline-block w-full">${corrText}</span>
+                </td>
+                <td class="px-6 py-4">
+                    <span class="inline-flex items-center justify-center px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-[10px] font-bold whitespace-normal">${typeName}</span>
+                </td>
+                <td class="px-6 py-4 text-center">
+                    <div class="flex items-center justify-center gap-1">
+                        <button type="button" onclick="openEditQuestionModal(${originalIndex})" class="p-2 text-sky-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" title="Edit"><i class="fas fa-edit"></i></button>
+                        <button type="button" onclick="deleteQuestion(${originalIndex})" class="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Hapus"><i class="fas fa-trash"></i></button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+window.renderAdminQuestions = renderAdminQuestions;
+
