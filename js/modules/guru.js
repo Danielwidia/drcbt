@@ -1509,6 +1509,181 @@ function exportQuestionsExcel() {
     XLSX.writeFile(workbook, `soal_cbt_export_${new Date().getTime()}.xlsx`);
 }
 
+function exportQuestionsWord() {
+    let questionsToExport = [];
+    const isTeacher = window.isTeacherMode || (typeof currentSiswa !== 'undefined' && currentSiswa && currentSiswa.role === 'teacher');
+    let mapelInfo = 'Semua Mapel';
+    let rombelInfo = 'Semua Rombel';
+
+    if (isTeacher) {
+        const fM = document.getElementById('teacher-filter-mapel')?.value || '';
+        const fR = document.getElementById('teacher-filter-rombel')?.value || '';
+        if (fM) mapelInfo = fM;
+        if (fR) rombelInfo = fR;
+
+        questionsToExport = db.questions.filter(q => {
+            const qSubject = typeof q.mapel === 'string' ? q.mapel : q.mapel?.name || q.mapel;
+            if (typeof teacherSubjectNames === 'function' && !teacherSubjectNames(currentSiswa).includes(qSubject)) return false;
+            if (typeof teacherAllowedRombels === 'function') {
+                const allowed = teacherAllowedRombels(currentSiswa, qSubject);
+                if (!allowed.includes(q.rombel)) return false;
+            }
+            if (fM && qSubject !== fM) return false;
+            if (fR && q.rombel !== fR) return false;
+            return true;
+        });
+    } else {
+        const fR = document.getElementById('filter-rombel')?.value || 'ALL';
+        const fM = document.getElementById('filter-mapel')?.value || 'ALL';
+        if (fM !== 'ALL') mapelInfo = fM;
+        if (fR !== 'ALL') rombelInfo = fR;
+
+        questionsToExport = db.questions.filter(q =>
+            (fR === 'ALL' || q.rombel === fR) && (fM === 'ALL' || q.mapel === fM)
+        );
+    }
+
+    if (questionsToExport.length === 0) {
+        alert('Tidak ada soal yang bisa diexport berdasarkan filter saat ini.');
+        return;
+    }
+
+    let htmlContent = `
+        <div style="font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: #1e293b;">
+            <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #0f172a; padding-bottom: 10px;">
+                <h2 style="margin: 0; font-size: 16pt; font-weight: bold; text-transform: uppercase;">BANK SOAL CBT</h2>
+                <p style="margin: 5px 0 0 0; font-size: 11pt; font-weight: bold;">Mata Pelajaran: ${mapelInfo} &nbsp;|&nbsp; Rombel: ${rombelInfo}</p>
+                <p style="margin: 2px 0 0 0; font-size: 9pt; color: #64748b;">Jumlah Soal: ${questionsToExport.length} &nbsp;|&nbsp; Tanggal Export: ${new Date().toLocaleDateString('id-ID')}</p>
+            </div>
+    `;
+
+    questionsToExport.forEach((q, idx) => {
+        const qNum = idx + 1;
+        const qType = q.type || 'single';
+        let typeLabel = 'Pilihan Ganda';
+        if (qType === 'multiple') typeLabel = 'Pilihan Ganda Kompleks';
+        else if (qType === 'tf') typeLabel = 'Benar / Salah';
+        else if (qType === 'matching') typeLabel = 'Menjodohkan';
+        else if (qType === 'text') typeLabel = 'Isian / Uraian';
+
+        htmlContent += `
+            <div style="margin-bottom: 18px; page-break-inside: avoid;">
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 6px;">
+                    <tr>
+                        <td style="vertical-align: top; width: 30px; font-weight: bold;">${qNum}.</td>
+                        <td style="vertical-align: top;">
+                            <div style="font-weight: bold; margin-bottom: 4px;">${q.text || ''}</div>
+                            <span style="font-size: 8pt; background-color: #f1f5f9; padding: 2px 6px; border-radius: 4px; color: #475569;">[${typeLabel}] Mapel: ${q.mapel || '-'} | Rombel: ${q.rombel || '-'}</span>
+                        </td>
+                    </tr>
+                </table>
+        `;
+
+        if (q.images && Array.isArray(q.images) && q.images.length > 0) {
+            htmlContent += `<div style="margin-left: 30px; margin-bottom: 8px;">`;
+            q.images.forEach(img => {
+                const imgSrc = typeof img === 'string' ? img : (img.data || '');
+                if (imgSrc) htmlContent += `<img src="${imgSrc}" style="max-width: 300px; max-height: 200px; margin-right: 10px; margin-bottom: 5px; border: 1px solid #ccc;" /><br/>`;
+            });
+            htmlContent += `</div>`;
+        } else if (q.image) {
+            const imgSrc = typeof q.image === 'string' ? q.image : (q.image.data || '');
+            if (imgSrc) {
+                htmlContent += `<div style="margin-left: 30px; margin-bottom: 8px;"><img src="${imgSrc}" style="max-width: 300px; max-height: 200px; border: 1px solid #ccc;" /></div>`;
+            }
+        }
+
+        htmlContent += `<div style="margin-left: 30px; margin-top: 6px;">`;
+
+        if (qType === 'single' || qType === 'multiple') {
+            const options = Array.isArray(q.options) ? q.options : [];
+            options.forEach((opt, optIdx) => {
+                const label = String.fromCharCode(65 + optIdx);
+                htmlContent += `<div style="margin-bottom: 4px;"><strong>${label}.</strong> ${opt}</div>`;
+            });
+
+            let keyStr = '-';
+            if (qType === 'single') {
+                const cIdx = typeof q.correct === 'number' ? q.correct : parseInt(q.correct);
+                if (!isNaN(cIdx) && cIdx >= 0 && cIdx < 26) keyStr = String.fromCharCode(65 + cIdx);
+            } else {
+                if (Array.isArray(q.correct)) {
+                    keyStr = q.correct.map(i => String.fromCharCode(65 + i)).join(', ');
+                }
+            }
+            htmlContent += `<div style="margin-top: 6px; font-weight: bold; color: #0284c7; font-size: 9.5pt;">Kunci Jawaban: ${keyStr}</div>`;
+
+        } else if (qType === 'tf') {
+            const stmts = Array.isArray(q.options) ? q.options : [];
+            const corrects = Array.isArray(q.correct) ? q.correct : [];
+            htmlContent += `<table style="width: 100%; border-collapse: collapse; margin-top: 4px; border: 1px solid #cbd5e1;" border="1" cellpadding="5">
+                <tr style="background-color: #f8fafc; font-weight: bold; text-align: left;">
+                    <th style="border: 1px solid #cbd5e1; width: 40px; text-align: center;">No</th>
+                    <th style="border: 1px solid #cbd5e1;">Pernyataan</th>
+                    <th style="border: 1px solid #cbd5e1; width: 100px; text-align: center;">Kunci</th>
+                </tr>`;
+            stmts.forEach((stmt, sIdx) => {
+                const isTrue = corrects[sIdx] === true || corrects[sIdx] === 'true' || corrects[sIdx] === 1;
+                htmlContent += `<tr>
+                    <td style="border: 1px solid #cbd5e1; text-align: center;">${sIdx + 1}</td>
+                    <td style="border: 1px solid #cbd5e1;">${stmt}</td>
+                    <td style="border: 1px solid #cbd5e1; text-align: center; font-weight: bold; color: ${isTrue ? '#16a34a' : '#dc2626'};">${isTrue ? 'BENAR' : 'SALAH'}</td>
+                </tr>`;
+            });
+            htmlContent += `</table>`;
+
+        } else if (qType === 'matching') {
+            const questions = Array.isArray(q.questions) ? q.questions : [];
+            const answers = Array.isArray(q.answers) ? q.answers : [];
+            htmlContent += `<table style="width: 100%; border-collapse: collapse; margin-top: 4px; border: 1px solid #cbd5e1;" border="1" cellpadding="5">
+                <tr style="background-color: #f8fafc; font-weight: bold;">
+                    <th style="border: 1px solid #cbd5e1; width: 40px; text-align: center;">No</th>
+                    <th style="border: 1px solid #cbd5e1; width: 45%;">Pertanyaan / Pernyataan</th>
+                    <th style="border: 1px solid #cbd5e1; width: 45%;">Pasangan Jawaban</th>
+                </tr>`;
+            questions.forEach((quest, qIdx) => {
+                const ans = answers[qIdx] || '-';
+                htmlContent += `<tr>
+                    <td style="border: 1px solid #cbd5e1; text-align: center;">${qIdx + 1}</td>
+                    <td style="border: 1px solid #cbd5e1;">${quest}</td>
+                    <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #0284c7;">${ans}</td>
+                </tr>`;
+            });
+            htmlContent += `</table>`;
+
+        } else if (qType === 'text') {
+            const keyStr = q.correct != null ? q.correct : '-';
+            htmlContent += `<div style="margin-top: 6px; font-weight: bold; color: #0284c7; font-size: 9.5pt;">Kunci Jawaban / Kata Kunci: ${keyStr}</div>`;
+        }
+
+        htmlContent += `</div></div><hr style="border: none; border-top: 1px dashed #cbd5e1; margin: 12px 0;" />`;
+    });
+
+    htmlContent += `</div>`;
+
+    const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' " +
+        "xmlns:w='urn:schemas-microsoft-com:office:word' " +
+        "xmlns='http://www.w3.org/TR/REC-html40'>" +
+        "<head><meta charset='utf-8'><title>Bank Soal CBT</title>" +
+        "<style>body { font-family: Arial, sans-serif; font-size: 11pt; }</style>" +
+        "</head><body>";
+    const footer = "</body></html>";
+    const sourceHTML = header + htmlContent + footer;
+
+    const blob = new Blob([sourceHTML], { type: 'application/msword;charset=utf-8' });
+    const fileDownload = document.createElement("a");
+    document.body.appendChild(fileDownload);
+    const downloadUrl = URL.createObjectURL(blob);
+    fileDownload.href = downloadUrl;
+    const sanitizedMapel = mapelInfo.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sanitizedRombel = rombelInfo.replace(/[^a-zA-Z0-9_-]/g, '_');
+    fileDownload.download = `BankSoal_${sanitizedMapel}_${sanitizedRombel}_${new Date().getTime()}.docx`;
+    fileDownload.click();
+    setTimeout(() => URL.revokeObjectURL(downloadUrl), 100);
+    document.body.removeChild(fileDownload);
+}
+window.exportQuestionsWord = exportQuestionsWord;
+
 function importQuestionsExcel() {
     const input = document.createElement('input');
     input.type = 'file';

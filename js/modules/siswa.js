@@ -565,43 +565,7 @@ function deleteQuestion(idx) {
 }
 
 
-function exportQuestions() {
-    let questionsToExport = [];
-    if (window.isTeacherMode || (currentSiswa && currentSiswa.role === 'teacher')) {
-        // Konteks guru: export sesuai filter yang aktif dan hanya soal milik guru tersebut
-        const fM = document.getElementById('teacher-filter-mapel')?.value || '';
-        const fR = document.getElementById('teacher-filter-rombel')?.value || '';
-        questionsToExport = db.questions.filter(q => {
-            const qSubject = typeof q.mapel === 'string' ? q.mapel : q.mapel?.name || q.mapel;
-            if (!teacherSubjectNames(currentSiswa).includes(qSubject)) return false;
-            const allowed = teacherAllowedRombels(currentSiswa, qSubject);
-            if (!allowed.includes(q.rombel)) return false;
-            if (fM && qSubject !== fM) return false;
-            if (fR && q.rombel !== fR) return false;
-            return true;
-        });
-    } else {
-        // Konteks admin: export sesuai filter admin
-        const fR = document.getElementById('filter-rombel').value;
-        const fM = document.getElementById('filter-mapel').value;
-        questionsToExport = db.questions.filter(q =>
-            (fR === 'ALL' || q.rombel === fR) && (fM === 'ALL' || q.mapel === fM)
-        );
-    }
 
-    if (questionsToExport.length === 0) {
-        alert('Tidak ada soal yang bisa diexport berdasarkan filter saat ini.');
-        return;
-    }
-
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(questionsToExport, null, 2));
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", `soal_cbt_export_${new Date().getTime()}.json`);
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
-}
 
 function moveQuestionUp(idx) {
     if (idx > 0) {
