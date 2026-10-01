@@ -2380,6 +2380,325 @@ function exportQuestions() {
 }
 window.exportQuestions = exportQuestions;
 
+/**
+ * Delete a mapel and update local state and server database.
+ */
+function deleteMapel(name) {
+    if (confirm(`Hapus mata pelajaran "${name}"?`)) {
+        db.subjects = (db.subjects || []).filter(s => getSubjectName(s) !== name);
+        if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+            if (typeof adminSave === 'function') adminSave();
+            if (typeof markAdminChanges === 'function') markAdminChanges();
+        } else if (typeof save === 'function') {
+            save();
+        }
+        renderRombelSection();
+    }
+}
+window.deleteMapel = deleteMapel;
+
+/**
+ * Delete a rombel and update local state and server database.
+ */
+function deleteRombel(name) {
+    if (confirm(`Hapus rombel "${name}"?`)) {
+        db.rombels = (db.rombels || []).filter(r => r !== name);
+        if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+            if (typeof adminSave === 'function') adminSave();
+            if (typeof markAdminChanges === 'function') markAdminChanges();
+        } else if (typeof save === 'function') {
+            save();
+        }
+        renderRombelSection();
+    }
+}
+window.deleteRombel = deleteRombel;
+
+/**
+ * Render Mapel list, Rombel list, and filter dropdowns in the Admin Rombel section.
+ */
+function renderRombelSection() {
+    const mapelList = document.getElementById('mapel-list');
+    const rombelList = document.getElementById('rombel-list');
+
+    if (mapelList) {
+        mapelList.innerHTML = (db.subjects || []).map(s => {
+            const name = getSubjectName(s);
+            return `
+                <div class="group flex items-center justify-between p-3.5 bg-slate-50 hover:bg-white hover:ring-1 hover:ring-sky-100 rounded-2xl transition-all">
+                    <div class="flex items-center gap-3">
+                        <i class="fas fa-bookmark text-[10px] text-sky-300"></i>
+                        <span class="text-xs font-bold text-slate-700">${name}</span>
+                    </div>
+                    <button onclick="deleteMapel('${name}')" class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100">
+                        <i class="fas fa-trash-alt text-[10px]"></i>
+                    </button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    if (rombelList) {
+        rombelList.innerHTML = (db.rombels || []).map(r => `
+            <div class="group flex items-center justify-between p-3.5 bg-slate-50 hover:bg-white hover:ring-1 hover:ring-emerald-100 rounded-2xl transition-all">
+                <div class="flex items-center gap-3">
+                    <i class="fas fa-graduation-cap text-[10px] text-emerald-300"></i>
+                    <span class="text-xs font-bold text-slate-700">${r}</span>
+                </div>
+                <button onclick="deleteRombel('${r}')" class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100">
+                    <i class="fas fa-trash-alt text-[10px]"></i>
+                </button>
+            </div>
+        `).join('');
+    }
+
+    const progressFilter = document.getElementById('progress-filter-rombel');
+    if (progressFilter) {
+        const current = progressFilter.value;
+        progressFilter.innerHTML = '<option value="">Semua</option>' +
+            (db.rombels || []).map(r => `<option value="${r}"${r === current ? ' selected' : ''}>${r}</option>`).join('');
+    }
+
+    const progressMapel = document.getElementById('progress-filter-mapel');
+    if (progressMapel) {
+        const currentMapel = progressMapel.value;
+        progressMapel.innerHTML = '<option value="">Semua</option>' +
+            (db.subjects || []).map(s => `<option value="${getSubjectName(s)}"${getSubjectName(s) === currentMapel ? ' selected' : ''}>${getSubjectName(s)}</option>`).join('');
+    }
+
+    // Teacher Progress Filters
+    const teacherProgressRombel = document.getElementById('teacher-progress-filter-rombel');
+    const isTeacher = typeof currentSiswa !== 'undefined' && currentSiswa && currentSiswa.role === 'teacher';
+
+    if (teacherProgressRombel) {
+        const current = teacherProgressRombel.value;
+        const availableRombels = isTeacher && typeof teacherCombinedRombels === 'function' ? teacherCombinedRombels(currentSiswa) : (db.rombels || []);
+        teacherProgressRombel.innerHTML = '<option value="">Semua</option>' +
+            availableRombels.map(r => `<option value="${r}"${r === current ? ' selected' : ''}>${r}</option>`).join('');
+    }
+
+    const teacherProgressMapel = document.getElementById('teacher-progress-filter-mapel');
+    if (teacherProgressMapel) {
+        const currentMapel = teacherProgressMapel.value;
+        const availableMapels = isTeacher && typeof teacherSubjectNames === 'function' ? teacherSubjectNames(currentSiswa) : (db.subjects || []);
+        teacherProgressMapel.innerHTML = '<option value="">Semua</option>' +
+            availableMapels.map(s => {
+                const name = typeof s === 'string' ? s : getSubjectName(s);
+                return `<option value="${name}"${name === currentMapel ? ' selected' : ''}>${name}</option>`;
+            }).join('');
+    }
+
+    renderRombelProgress();
+}
+window.renderRombelSection = renderRombelSection;
+
+/**
+ * Render Live student progress cards in Admin and Teacher dashboards.
+ */
+function renderRombelProgress() {
+    const adminEl = document.getElementById('admin-rombel');
+    const teacherEl = document.getElementById('teacher-tab-live-progress');
+    const isAdminVisible = adminEl && !adminEl.classList.contains('hidden');
+    const isTeacherVisible = teacherEl && !teacherEl.classList.contains('hidden');
+
+    let progressList, filterSelect, mapelSelect;
+
+    if (isTeacherVisible) {
+        progressList = document.getElementById('teacher-rombel-progress-list');
+        filterSelect = document.getElementById('teacher-progress-filter-rombel');
+        mapelSelect = document.getElementById('teacher-progress-filter-mapel');
+    } else {
+        progressList = document.getElementById('rombel-progress-list');
+        filterSelect = document.getElementById('progress-filter-rombel');
+        mapelSelect = document.getElementById('progress-filter-mapel');
+    }
+
+    if (!progressList) {
+        return;
+    }
+
+    const selectedRombel = filterSelect ? filterSelect.value : '';
+    const selectedMapel = mapelSelect ? mapelSelect.value : '';
+
+    const questionsList = Array.isArray(db.questions) ? db.questions : [];
+    const questionsByRombel = questionsList.reduce((acc, q) => {
+        if (!q.rombel || !q.mapel) return acc;
+        if (!acc[q.rombel]) acc[q.rombel] = new Set();
+        acc[q.rombel].add(typeof q.mapel === 'string' ? q.mapel : q.mapel?.name || q.mapel);
+        return acc;
+    }, {});
+
+    function formatTimeRemaining(seconds) {
+        if (seconds <= 0) return 'Waktu habis';
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+        if (hrs > 0) {
+            return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    function formatLastSeen(updatedAt) {
+        if (!updatedAt) return 'Never';
+        const now = Date.now();
+        const diff = Math.floor((now - new Date(updatedAt).getTime()) / 1000);
+        if (diff < 2) return 'Baru saja';
+        if (diff < 60) return `${diff} detik lalu`;
+        return `${Math.floor(diff / 60)} menit lalu`;
+    }
+
+    let list = (db.students || []).filter(s => s.role !== 'admin');
+
+    if (isTeacherVisible && typeof currentSiswa !== 'undefined' && currentSiswa && currentSiswa.role === 'teacher') {
+        const allowedRombels = typeof teacherCombinedRombels === 'function' ? teacherCombinedRombels(currentSiswa) : [];
+        list = list.filter(s => allowedRombels.includes(s.rombel));
+    }
+
+    list = list.filter(s => !selectedRombel || s.rombel === selectedRombel)
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    if (list.length === 0) {
+        progressList.innerHTML = `<div class="px-6 py-8 text-center text-slate-500 rounded-3xl border border-dashed border-slate-200">Tidak ada siswa untuk ditampilkan.</div>`;
+        return;
+    }
+
+    const html = list.map(s => {
+        const isTeacher = isTeacherVisible && typeof currentSiswa !== 'undefined' && currentSiswa && currentSiswa.role === 'teacher';
+        const teacherMapels = isTeacher && typeof teacherSubjectNames === 'function' ? teacherSubjectNames(currentSiswa) : null;
+
+        const availableMapels = Array.from(questionsByRombel[s.rombel] || [])
+            .filter(m => teacherMapels ? teacherMapels.includes(m) : true);
+
+        const studentResults = (db.results || []).filter(r =>
+            r.studentId === s.id && !r.deleted &&
+            (!selectedMapel ? (teacherMapels ? teacherMapels.includes(r.mapel) : true) : r.mapel === selectedMapel)
+        );
+
+        const completedMapels = new Set(studentResults.map(r => r.mapel));
+        const completedCount = completedMapels.size;
+        const totalMapels = selectedMapel ? (availableMapels.includes(selectedMapel) ? 1 : 0) : availableMapels.length;
+
+        const normStr = v => String(v || '').trim().toLowerCase();
+        const sid = normStr(s.id);
+        const srom = normStr(s.rombel);
+
+        const activeEntry = (db.activeExams || []).find(e => {
+            const sameId = normStr(e.studentId) === sid;
+            const sameRombel = !e.rombel || !s.rombel || normStr(e.rombel) === srom;
+            const sameMapel = !selectedMapel ?
+                (teacherMapels ? teacherMapels.some(tm => normStr(tm) === normStr(e.mapel)) : true) :
+                normStr(e.mapel) === normStr(selectedMapel);
+
+            return sameId && sameRombel && sameMapel;
+        });
+
+        const progress = activeEntry ? activeEntry.percentage : (totalMapels ? Math.round((completedCount / totalMapels) * 100) : 0);
+        const averageScore = studentResults.length ? (studentResults.reduce((sum, r) => sum + Number(r.score || 0), 0) / studentResults.length).toFixed(1) : '-';
+
+        let infoText = '';
+        let timeAlertClass = '';
+        let barHtml = '';
+
+        if (activeEntry) {
+            const timeRemainingText = formatTimeRemaining(activeEntry.timeRemaining || 0);
+            const correctCount = activeEntry.correctCount || 0;
+            const totalItems = activeEntry.totalItems || activeEntry.totalQuestions || 100;
+            const answeredItems = activeEntry.answeredItemsCount || 0;
+            const answeredQuestions = activeEntry.answeredCount || 0;
+
+            const lastSeenText = formatLastSeen(activeEntry.updatedAt);
+            infoText = `Sedang ujian ${activeEntry.mapel} • ${answeredQuestions}/${activeEntry.totalQuestions} Terjawab • ${activeEntry.percentage}% dijawab • ${correctCount} benar • Sisa waktu: ${timeRemainingText} • <span class="text-[10px] text-emerald-400 font-bold">${lastSeenText}</span>`;
+
+            if ((activeEntry.timeRemaining || 0) < 300 && (activeEntry.timeRemaining || 0) > 0) {
+                timeAlertClass = ' border-l-4 border-l-red-500 bg-red-50';
+            }
+
+            const correctPercent = (correctCount / totalItems) * 100;
+            const remainingProgressPercent = Math.max(0, ((answeredItems - correctCount) / totalItems) * 100);
+
+            let greenWidth = correctPercent;
+            let blueWidth = remainingProgressPercent;
+            if (greenWidth === 0 && blueWidth === 0 && activeEntry.percentage > 0) {
+                blueWidth = activeEntry.percentage;
+            }
+
+            barHtml = `
+                <div class="mt-4 h-2.5 w-full rounded-full bg-slate-200 overflow-hidden flex shadow-inner border border-slate-100">
+                    <div class="h-full bg-emerald-500 transition-all duration-700 ease-out" style="width:${greenWidth}%" title="${correctCount} Benar"></div>
+                    <div class="h-full bg-sky-400 transition-all duration-700 ease-out" style="width:${blueWidth}%" title="Progres Lainnya"></div>
+                </div>
+            `;
+        } else {
+            infoText = selectedMapel
+                ? totalMapels
+                    ? (completedCount > 0 ? `Selesai ${selectedMapel} • Rata-rata skor ${averageScore === '-' ? '-' : averageScore + '%'}` : `Belum mengerjakan ${selectedMapel}`)
+                    : `Mapel ${selectedMapel} tidak tersedia di rombel ${s.rombel}`
+                : totalMapels
+                    ? `${completedCount}/${totalMapels} mapel selesai • Rata-rata skor ${averageScore === '-' ? '-' : averageScore + '%'}`
+                    : 'Belum ada mata pelajaran aktif untuk rombel ini.';
+
+            barHtml = `
+                <div class="mt-4 h-2.5 w-full rounded-full bg-slate-200 overflow-hidden shadow-inner border border-slate-100">
+                    <div class="h-full rounded-full bg-emerald-500 transition-all duration-700 ease-out" style="width:${progress}%;"></div>
+                </div>
+            `;
+        }
+
+        const saveIcon = activeEntry ? `
+            <button onclick="requestStudentSave('${s.id}')" title="Simpan Progres Siswa" 
+                class="w-7 h-7 flex items-center justify-center bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-all ml-2">
+                <i class="fas fa-save text-xs"></i>
+            </button>` : '';
+
+        const reloadIcon = activeEntry ? `
+            <button onclick="requestStudentReload('${s.id}')" title="Reload Tab Siswa" 
+                class="w-7 h-7 flex items-center justify-center bg-sky-50 text-sky-600 rounded-lg hover:bg-sky-100 transition-all">
+                <i class="fas fa-sync-alt text-xs"></i>
+            </button>` : '';
+
+        const clearIcon = activeEntry ? `
+            <button onclick="requestStudentClearAnswers('${s.id}')" title="Hapus Jawaban Siswa" 
+                class="w-7 h-7 flex items-center justify-center bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-all">
+                <i class="fas fa-trash-alt text-xs"></i>
+            </button>` : '';
+
+        const statusBadge = activeEntry
+            ? `<div class="flex items-center gap-1">
+                <span class="px-3 py-1 bg-sky-100 text-sky-700 rounded-full text-[10px] font-black uppercase">Sedang mengerjakan</span>
+                ${saveIcon}
+                ${clearIcon}
+                ${reloadIcon}
+               </div>`
+            : '<span class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-black uppercase">Tidak sedang mengerjakan</span>';
+
+        const requestBadges = activeEntry ? [
+            activeEntry.adminSaveRequest ? '<span class="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-black uppercase">Permintaan SIMPAN terkirim</span>' : null,
+            activeEntry.adminReloadRequest ? '<span class="px-3 py-1 bg-sky-100 text-sky-700 rounded-full text-[10px] font-black uppercase">Permintaan RELOAD terkirim</span>' : null
+        ].filter(Boolean).join(' ') : '';
+
+        return `
+            <div class="p-4 bg-slate-50 rounded-3xl border border-slate-100${timeAlertClass} transition-all duration-300 hover:shadow-md">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <div class="flex items-center gap-2 mb-2">${statusBadge}</div>
+                        <p class="text-xs text-slate-500">Nama Siswa</p>
+                        <p class="font-black text-slate-800">${s.name}</p>
+                        <p class="text-xs text-slate-500">${s.rombel} • ${infoText}</p>
+                        ${requestBadges ? `<div class="mt-3 flex flex-wrap gap-2">${requestBadges}</div>` : ''}
+                    </div>
+                    <div class="text-right">
+                        <span class="text-sm font-black text-slate-800">${progress}%</span>
+                    </div>
+                </div>
+                ${barHtml}
+            </div>`;
+    }).join('');
+
+    progressList.innerHTML = html;
+}
+window.renderRombelProgress = renderRombelProgress;
+
 // --- INIT ---
 window.addEventListener('load', async () => {
     // Fallback: Hide loading overlay after 3 seconds regardless
