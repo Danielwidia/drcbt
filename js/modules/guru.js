@@ -1787,8 +1787,21 @@ function importDatabase(event) {
             if (parsed && typeof parsed === 'object') {
                 db = parsed;
                 save();
-                alert('Restore berhasil. Halaman akan dimuat ulang.');
-                location.reload();
+                // Refresh UI tanpa reload halaman — sinkronkan manual via tombol Sinkron jika diperlukan
+                if (typeof updateStats === 'function') updateStats();
+                if (typeof populateSelects === 'function') populateSelects(['filter-mapel', 'filter-rombel', 'results-filter-rombel', 'results-filter-mapel'], true);
+                if (typeof renderAdminQuestions === 'function') renderAdminQuestions();
+                if (typeof renderAdminPaketSoal === 'function') renderAdminPaketSoal();
+                if (typeof renderAdminResults === 'function') renderAdminResults();
+                if (typeof renderAdminStudents === 'function') renderAdminStudents();
+                if (typeof renderRombelSection === 'function') renderRombelSection();
+                if (typeof renderUserLogs === 'function') renderUserLogs();
+                if (typeof markAdminChanges === 'function') markAdminChanges();
+                if (typeof showToast === 'function') {
+                    showToast('✅ Restore berhasil! Tekan tombol SINKRON untuk mengirim ke server.', 'success');
+                } else {
+                    alert('✅ Restore berhasil! Tekan tombol Sinkron untuk mengirim data ke server.');
+                }
             } else {
                 alert('Format file tidak valid.');
             }
