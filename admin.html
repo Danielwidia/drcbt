@@ -1853,6 +1853,8 @@
                         <i class="fas fa-robot"></i>
                     </div>
                     <h3 class="text-xl font-black text-slate-800">Buat Soal AI</h3>
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Generate Otomatis
+                        dengan AI</p>
                 </div>
                 <button onclick="closeModals()" class="text-slate-400 hover:text-slate-600"><i
                         class="fas fa-times"></i></button>
@@ -2024,7 +2026,7 @@
                         <p class="text-slate-400 text-xs mt-0.5">Pilih rombel yang boleh mengakses tiap mata pelajaran</p>
                     </div>
                 </div>
-                <button onclick="closeModals()" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-all flex-shrink-0 ml-4">
+                <button onclick="closeModals()" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-all">
                     <i class="fas fa-times text-xl"></i>
                 </button>
             </div>
@@ -2161,9 +2163,7 @@
                 </div>
                 <h3 class="text-2xl font-black text-slate-800 mb-2">PERINGATAN KERAS!</h3>
                 <p class="text-slate-600 mb-8 leading-relaxed">Terdeteksi upaya keluar dari halaman ujian.
-                    <br><br><strong>Peringatan:</strong> Jika Anda keluar sekali lagi, ujian akan otomatis
-                    <strong>diberhentikan dan nilai dikirim</strong> apa adanya.
-                </p>
+                    <br><br><strong>Peringatan:</strong> Jika Anda keluar sekali lagi, ujian
                 <button onclick="closeCheatWarning()"
                     class="w-full py-4 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 shadow-xl shadow-red-200 transition-all flex items-center justify-center gap-2">
                     <i class="fas fa-check"></i> OK, LANJUTKAN UJIAN
@@ -2202,8 +2202,8 @@
     </div>
     </div>
 
-    <script src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
-    <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="/node_modules/mammoth/mammoth.browser.min.js"></script>
+    <script src="/node_modules/xlsx/dist/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.9.3/html2pdf.bundle.min.js"></script>
 
     <!-- API Keys Detail Modal -->
