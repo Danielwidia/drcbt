@@ -205,6 +205,152 @@ window.adminSyncToServer = adminSyncToServer;
             });
         }
     });
+
+    fallback('openStudentModal', () => {
+        editStudentId = null;
+        const nameEl = document.getElementById('st-name');
+        const idEl = document.getElementById('st-id');
+        const passEl = document.getElementById('st-password');
+        const extraEl = document.getElementById('st-extra-fields');
+        const titleEl = document.getElementById('student-modal-title');
+        const btnEl = document.getElementById('student-save-btn');
+
+        if (nameEl) nameEl.value = '';
+        if (idEl) idEl.value = '';
+        if (passEl) passEl.value = '';
+        if (extraEl) extraEl.classList.add('hidden');
+        if (titleEl) titleEl.textContent = 'Siswa Baru';
+        if (btnEl) btnEl.textContent = 'DAFTAR';
+
+        if (typeof populateSelects === 'function') populateSelects(['st-rombel']);
+        const modal = document.getElementById('student-modal');
+        if (modal) modal.classList.replace('hidden', 'flex');
+    });
+
+    fallback('saveStudent', function () {
+        const nameEl = document.getElementById('st-name');
+        const rombelEl = document.getElementById('st-rombel');
+        const name = nameEl ? nameEl.value.trim() : '';
+        const rombel = rombelEl ? rombelEl.value : '';
+
+        if (!name) return alert('Nama harus diisi');
+
+        if (editStudentId) {
+            const student = Array.isArray(db?.students) ? db.students.find(x => x.id === editStudentId) : null;
+            if (student) {
+                const newId = document.getElementById('st-id')?.value.trim() || '';
+                const newPassword = document.getElementById('st-password')?.value.trim() || '';
+
+                if (newId && newId !== student.id) {
+                    (db.results || []).forEach(r => {
+                        if (r.studentId === student.id) r.studentId = newId;
+                    });
+                    student.id = newId;
+                }
+
+                student.name = name;
+                student.rombel = rombel;
+                if (newPassword) student.password = newPassword;
+                if (typeof showToast === 'function') showToast('Data siswa diperbarui', 'success');
+            }
+        } else {
+            const id = 'DRKS-' + Math.floor(1000 + Math.random() * 9000);
+            if (!Array.isArray(db.students)) db.students = [];
+            db.students.push({ id, password: 'escrido', name, rombel, role: 'student' });
+            if (typeof showToast === 'function') showToast('Siswa berhasil didaftarkan', 'success');
+        }
+
+        if (typeof updateCompletionCharts === 'function') updateCompletionCharts();
+
+        if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+            if (typeof adminSave === 'function') adminSave();
+            if (typeof markAdminChanges === 'function') markAdminChanges();
+        } else if (typeof save === 'function') {
+            save();
+        }
+
+        if (typeof renderAdminStudents === 'function') renderAdminStudents();
+        if (typeof closeModals === 'function') closeModals();
+    });
+
+    fallback('editStudent', function (id) {
+        const student = Array.isArray(db?.students) ? db.students.find(x => x.id === id) : null;
+        if (!student) return alert('Siswa tidak ditemukan');
+
+        editStudentId = id;
+        const nameEl = document.getElementById('st-name');
+        const idEl = document.getElementById('st-id');
+        const passEl = document.getElementById('st-password');
+        const extraEl = document.getElementById('st-extra-fields');
+        const titleEl = document.getElementById('student-modal-title');
+        const btnEl = document.getElementById('student-save-btn');
+
+        if (nameEl) nameEl.value = student.name || '';
+        if (idEl) idEl.value = student.id || '';
+        if (passEl) passEl.value = student.password || '';
+        if (extraEl) extraEl.classList.remove('hidden');
+        if (titleEl) titleEl.textContent = 'Edit Siswa';
+        if (btnEl) btnEl.textContent = 'PERBARUI';
+
+        if (typeof populateSelects === 'function') populateSelects(['st-rombel']);
+        const rombelSelect = document.getElementById('st-rombel');
+        if (rombelSelect) rombelSelect.value = student.rombel || '';
+
+        const modal = document.getElementById('student-modal');
+        if (modal) modal.classList.replace('hidden', 'flex');
+    });
+
+    fallback('deleteStudent', function (id) {
+        if (!confirm('Hapus siswa ini?')) return;
+        if (Array.isArray(db?.students)) {
+            db.students = db.students.filter(x => x.id !== id);
+        }
+        if (typeof updateCompletionCharts === 'function') updateCompletionCharts();
+
+        if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+            if (typeof adminSave === 'function') adminSave();
+            if (typeof markAdminChanges === 'function') markAdminChanges();
+        } else if (typeof save === 'function') {
+            save();
+        }
+
+        if (typeof renderAdminStudents === 'function') renderAdminStudents();
+    });
+
+    fallback('resetStudentResults', function (studentId) {
+        if (!confirm('Reset hasil ujian untuk siswa ini?')) return;
+
+        let any = false;
+        if (Array.isArray(db?.results)) {
+            db.results = db.results.map(r => {
+                if (r.studentId === studentId && !r.deleted) {
+                    any = true;
+                    return { ...r, deleted: true, updatedAt: Date.now() };
+                }
+                return r;
+            });
+        }
+
+        if (!any) {
+            alert('Tidak ada hasil ujian aktif untuk siswa ini.');
+            return;
+        }
+
+        if (typeof loadedCollections !== 'undefined') loadedCollections.results = true;
+
+        if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+            if (typeof adminSave === 'function') adminSave();
+            if (typeof markAdminChanges === 'function') markAdminChanges();
+        } else if (typeof save === 'function') {
+            save();
+        }
+
+        if (typeof updateCompletionCharts === 'function') updateCompletionCharts();
+        if (typeof updateStats === 'function') updateStats();
+        if (typeof renderAdminResults === 'function') renderAdminResults();
+        if (typeof renderAdminStudents === 'function') renderAdminStudents();
+        alert('Reset hasil ujian siswa berhasil.');
+    });
 })();
 
 // Initialize Admin Sync Mode - akan dipanggil dari showAdminSection
@@ -1516,93 +1662,178 @@ function deleteFilteredQuestions() {
 
 window.deleteFilteredQuestions = deleteFilteredQuestions;
 
-function normalizeStudentRecord(student, fallbackIndex = 0) {
-    if (!student || typeof student !== 'object') return null;
+let editStudentId = null;
 
-    const rawRole = String(student.role ?? student.userRole ?? student.level ?? student.jenis ?? '').trim().toLowerCase();
-    const normalizedRole = rawRole === 'admin' || rawRole === 'administrator'
-        ? 'admin'
-        : rawRole === 'teacher' || rawRole === 'guru' || rawRole === 'pengajar'
-            ? 'teacher'
-            : rawRole === 'student' || rawRole === 'siswa' || rawRole === 'murid' || rawRole === ''
-                ? 'student'
-                : rawRole || 'student';
+function openStudentModal() {
+    editStudentId = null;
+    const nameEl = document.getElementById('st-name');
+    const idEl = document.getElementById('st-id');
+    const passEl = document.getElementById('st-password');
+    const extraEl = document.getElementById('st-extra-fields');
+    const titleEl = document.getElementById('student-modal-title');
+    const btnEl = document.getElementById('student-save-btn');
 
-    const id = String(student.id ?? student.studentId ?? student.nisn ?? student.username ?? '').trim() || `DRKS-${fallbackIndex + 1}`;
-    const name = String(student.name ?? student.nama ?? student.fullName ?? student.full_name ?? student.studentName ?? student.student_name ?? '').trim() || `Siswa ${fallbackIndex + 1}`;
-    const rombel = String(student.rombel ?? student.kelas ?? student.kelasName ?? student.className ?? student.group ?? '').trim() || '-';
-    const password = String(student.password ?? student.sandi ?? student.pass ?? student.pwd ?? 'escrido').trim() || 'escrido';
+    if (nameEl) nameEl.value = '';
+    if (idEl) idEl.value = '';
+    if (passEl) passEl.value = '';
+    if (extraEl) extraEl.classList.add('hidden');
+    if (titleEl) titleEl.textContent = 'Siswa Baru';
+    if (btnEl) btnEl.textContent = 'DAFTAR';
 
-    return { ...student, id, name, rombel, password, role: normalizedRole };
+    if (typeof populateSelects === 'function') populateSelects(['st-rombel']);
+    const modal = document.getElementById('student-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+}
+window.openStudentModal = openStudentModal;
+
+function editStudent(id) {
+    const students = Array.isArray(window.db?.students) ? window.db.students : [];
+    const s = students.find(x => String(x.id) === String(id));
+    if (!s) return alert('Siswa tidak ditemukan');
+
+    editStudentId = id;
+    const nameEl = document.getElementById('st-name');
+    const idEl = document.getElementById('st-id');
+    const passEl = document.getElementById('st-password');
+    const extraEl = document.getElementById('st-extra-fields');
+    const titleEl = document.getElementById('student-modal-title');
+    const btnEl = document.getElementById('student-save-btn');
+
+    if (nameEl) nameEl.value = s.name || '';
+    if (idEl) idEl.value = s.id || '';
+    if (passEl) passEl.value = s.password || '';
+    if (extraEl) extraEl.classList.remove('hidden');
+    if (titleEl) titleEl.textContent = 'Edit Siswa';
+    if (btnEl) btnEl.textContent = 'PERBARUI';
+
+    if (typeof populateSelects === 'function') populateSelects(['st-rombel']);
+    const rombelSelect = document.getElementById('st-rombel');
+    if (rombelSelect) rombelSelect.value = s.rombel || '';
+
+    const modal = document.getElementById('student-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+}
+window.editStudent = editStudent;
+
+function saveStudent() {
+    const nameInput = document.getElementById('st-name');
+    const rombelSelect = document.getElementById('st-rombel');
+    const name = nameInput ? nameInput.value.trim() : '';
+    const rombel = rombelSelect ? rombelSelect.value : '';
+    if (!name) return alert('Nama harus diisi');
+
+    if (editStudentId) {
+        const student = (window.db?.students || []).find(x => String(x.id) === String(editStudentId));
+        if (student) {
+            const newId = document.getElementById('st-id')?.value.trim() || '';
+            const newPassword = document.getElementById('st-password')?.value.trim() || '';
+
+            if (newId && newId !== student.id) {
+                (window.db?.results || []).forEach(r => {
+                    if (String(r.studentId) === String(student.id)) r.studentId = newId;
+                });
+                student.id = newId;
+            }
+
+            student.name = name;
+            student.rombel = rombel;
+            if (newPassword) student.password = newPassword;
+            if (typeof showToast === 'function') showToast('Data siswa diperbarui', 'success');
+        }
+    } else {
+        const id = 'DRKS-' + Math.floor(1000 + Math.random() * 9000);
+        (window.db?.students || []).push({ id, password: 'escrido', name, rombel, role: 'student' });
+        if (typeof showToast === 'function') showToast('Siswa berhasil didaftarkan', 'success');
+    }
+
+    if (typeof updateCompletionCharts === 'function') updateCompletionCharts();
+
+    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+        if (typeof adminSave === 'function') adminSave();
+        if (typeof markAdminChanges === 'function') markAdminChanges();
+    } else if (typeof save === 'function') {
+        save();
+    }
+
+    if (typeof renderAdminStudents === 'function') renderAdminStudents();
+    if (typeof closeModals === 'function') closeModals();
+}
+window.saveStudent = saveStudent;
+
+async function deleteStudent(id) {
+    if (!confirm('Hapus siswa ini?')) return;
+    const students = Array.isArray(window.db?.students) ? window.db.students : [];
+    window.db.students = students.filter(x => String(x.id) !== String(id));
+    if (typeof updateCompletionCharts === 'function') updateCompletionCharts();
+
+    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+        if (typeof adminSave === 'function') await adminSave();
+        if (typeof markAdminChanges === 'function') markAdminChanges();
+    } else if (typeof save === 'function') {
+        await save();
+    }
+
+    if (typeof renderAdminStudents === 'function') renderAdminStudents();
+}
+window.deleteStudent = deleteStudent;
+
+async function resetStudentResults(studentId) {
+    if (!confirm('Reset hasil ujian untuk siswa ini?')) return;
+
+    let any = false;
+    window.db.results = (window.db?.results || []).map(r => {
+        if (String(r.studentId) === String(studentId) && !r.deleted) {
+            any = true;
+            return { ...r, deleted: true, updatedAt: Date.now() };
+        }
+        return r;
+    });
+
+    if (!any) {
+        alert('Tidak ada hasil ujian aktif untuk siswa ini.');
+        return;
+    }
+
+    if (typeof loadedCollections !== 'undefined') loadedCollections.results = true;
+
+    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+        if (typeof adminSave === 'function') await adminSave();
+        if (typeof markAdminChanges === 'function') markAdminChanges();
+    } else if (typeof save === 'function') {
+        await save();
+    }
+
+    if (typeof updateCompletionCharts === 'function') updateCompletionCharts();
+    if (typeof updateStats === 'function') updateStats();
+    if (typeof renderAdminResults === 'function') renderAdminResults();
+    if (typeof renderAdminStudents === 'function') renderAdminStudents();
+    alert('Reset hasil ujian siswa berhasil.');
+}
+window.resetStudentResults = resetStudentResults;
+
+if (typeof window.openStudentModal !== 'function') {
+    window.openStudentModal = openStudentModal;
 }
 
-if (typeof window.renderAdminStudents !== 'function') {
-    window.renderAdminStudents = function renderAdminStudents() {
-        const tbody = document.getElementById('students-table-body');
-        const filterSelect = document.getElementById('students-filter-rombel');
-        const rawStudents = Array.isArray(window.db?.students) ? window.db.students : [];
-        const normalizedStudents = rawStudents
-            .map((student, index) => normalizeStudentRecord(student, index))
-            .filter(Boolean);
-        const studentList = normalizedStudents.filter(s => s.role !== 'admin');
-        const selectedRombel = filterSelect ? filterSelect.value : '';
+if (typeof window.editStudent !== 'function') {
+    window.editStudent = editStudent;
+}
 
-        if (filterSelect) {
-            const current = filterSelect.value;
-            const uniqueRombels = [...new Set(studentList.map(s => String(s.rombel || '').trim()).filter(Boolean))];
-            const options = ['<option value="">Semua</option>'];
-            const allRombels = [...new Set([...(window.db?.rombels || []), ...uniqueRombels])];
-            allRombels.forEach(r => {
-                const value = String(r || '').trim();
-                if (!value) return;
-                options.push(`<option value="${value}"${value === current ? ' selected' : ''}>${value}</option>`);
-            });
-            filterSelect.innerHTML = options.join('');
-        }
+if (typeof window.saveStudent !== 'function') {
+    window.saveStudent = saveStudent;
+}
 
-        let list = [...studentList];
-        if (selectedRombel) {
-            list = list.filter(s => String(s.rombel || '').trim() === String(selectedRombel).trim());
-        }
+if (typeof window.deleteStudent !== 'function') {
+    window.deleteStudent = deleteStudent;
+}
 
-        list.sort((a, b) => {
-            const rombelCompare = String(a.rombel || '').localeCompare(String(b.rombel || ''));
-            if (rombelCompare !== 0) return rombelCompare;
-            return String(a.name || '').localeCompare(String(b.name || ''));
-        });
-
-        if (!tbody) return;
-
-        if (list.length === 0) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="4" class="px-6 py-8 text-center text-slate-400 italic font-medium">Belum ada peserta didik yang tampil untuk filter ini.</td>
-                </tr>
-            `;
-            return;
-        }
-
-        tbody.innerHTML = list.map(s => {
-            const safeId = String(s.id || '').replace(/'/g, "\\'");
-            const safeName = String(s.name || 'Tanpa Nama').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            const safePassword = String(s.password || '—').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            const safeRombel = String(s.rombel || '-').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-            return `
-                <tr>
-                    <td class="px-6 py-4 font-bold text-slate-700">${safeName}</td>
-                    <td class="px-6 py-4 text-xs font-semibold text-slate-500">${safeRombel}</td>
-                    <td class="px-6 py-4"><span class="bg-slate-50 border border-slate-100 px-2 py-1 rounded font-bold text-sky-600 text-[10px] tracking-widest">${String(s.id || '—')} / ${safePassword}</span></td>
-                    <td class="px-6 py-4 text-center">
-                        <div class="flex items-center justify-center gap-1">
-                            <button onclick="editStudent('${safeId}')" class="w-8 h-8 rounded-lg bg-sky-50 text-sky-500 hover:bg-sky-100 transition-all flex items-center justify-center" title="Edit Data"><i class="fas fa-edit text-xs"></i></button>
-                            <button onclick="resetStudentResults('${safeId}')" class="w-8 h-8 rounded-lg bg-amber-50 text-amber-500 hover:bg-amber-100 transition-all flex items-center justify-center" title="Reset Hasil Ujian"><i class="fas fa-sync-alt text-xs"></i></button>
-                            <button onclick="deleteStudent('${safeId}')" class="w-8 h-8 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-all flex items-center justify-center" title="Hapus"><i class="fas fa-trash text-xs"></i></button>
-                        </div>
-                    </td>
-                </tr>
-            `;
-        }).join('');
-    };
+if (typeof window.resetStudentResults !== 'function') {
+    window.resetStudentResults = resetStudentResults;
 }
 
