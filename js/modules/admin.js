@@ -12,11 +12,14 @@ let adminSyncState = {
     lastSyncTime: null
 };
 
+console.log('[ADMIN SYNC] ✓ Admin sync state initialized');
+
 // Fungsi untuk menandai ada perubahan belum disinkronkan
 function markAdminChanges() {
     if (adminSyncState.isAdminMode && !adminSyncState.isSyncing) {
         adminSyncState.hasUnsyncedChanges = true;
         updateAdminSyncIndicator();
+        console.log('[ADMIN SYNC] ⚠️ Changes marked unsaved');
     }
 }
 
@@ -28,9 +31,11 @@ function updateAdminSyncIndicator() {
     if (adminSyncState.hasUnsyncedChanges) {
         syncBtn.classList.add('has-changes');
         syncBtn.style.animation = 'pulse-sync 2s infinite';
+        console.log('[ADMIN SYNC] 🔴 Button indicator updated - has changes');
     } else {
         syncBtn.classList.remove('has-changes');
         syncBtn.style.animation = 'none';
+        console.log('[ADMIN SYNC] 🔵 Button indicator updated - no changes');
     }
 }
 
@@ -197,78 +202,92 @@ window.adminSyncToServer = adminSyncToServer;
     });
 })();
 
-// Initialize Admin Sync Mode
-(function initAdminSyncMode() {
+// Initialize Admin Sync Mode - akan dipanggil dari showAdminSection
+function initAdminSyncMode() {
     // Cek apakah user adalah admin
     const currentUser = typeof currentSiswa !== 'undefined' ? currentSiswa : null;
+    console.log('[ADMIN SYNC] initAdminSyncMode() called - currentUser:', currentUser ? currentUser.role : 'undefined');
+    
     if (currentUser && currentUser.role === 'admin') {
         adminSyncState.isAdminMode = true;
         console.log('[ADMIN SYNC] 🔒 Admin mode activated - changes will be staged locally');
         
-        // Create sync button UI
-        setTimeout(() => {
-            createAdminSyncUI();
-        }, 100);
+        // Create sync button UI immediately
+        createAdminSyncUI();
+    } else {
+        console.log('[ADMIN SYNC] ⚠️ Not admin or currentSiswa not defined - sync button NOT created');
     }
-})();
+}
+
+window.initAdminSyncMode = initAdminSyncMode;
 
 // Buat UI tombol sinkron
 function createAdminSyncUI() {
     // Cek apakah sudah ada
-    if (document.getElementById('admin-sync-btn')) return;
+    if (document.getElementById('admin-sync-btn')) {
+        console.log('[ADMIN SYNC] ℹ️ Button sudah ada, skip create');
+        return;
+    }
     
-    // Buat CSS untuk animation
+    console.log('[ADMIN SYNC] 🔨 Creating sync button UI...');
+    
+    // Buat CSS untuk animation dan styling yang lebih robust
     const styleId = 'admin-sync-styles';
     if (!document.getElementById(styleId)) {
         const style = document.createElement('style');
         style.id = styleId;
+        style.setTimeout = '10000';
         style.innerHTML = `
             #admin-sync-btn {
-                position: fixed;
-                bottom: 2rem;
-                right: 2rem;
-                z-index: 40;
-                width: 60px;
-                height: 60px;
-                border-radius: 50%;
-                background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-                color: white;
-                border: none;
-                cursor: pointer;
-                box-shadow: 0 4px 20px rgba(37, 99, 235, 0.4);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 1.5rem;
-                transition: all 0.3s ease;
-                font-weight: bold;
-                text-align: center;
-                padding: 0;
+                position: fixed !important;
+                bottom: 2rem !important;
+                right: 2rem !important;
+                z-index: 9999 !important;
+                width: 60px !important;
+                height: 60px !important;
+                border-radius: 50% !important;
+                background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+                color: white !important;
+                border: none !important;
+                cursor: pointer !important;
+                box-shadow: 0 4px 20px rgba(37, 99, 235, 0.4) !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                font-size: 1.5rem !important;
+                transition: all 0.3s ease !important;
+                font-weight: bold !important;
+                text-align: center !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                outline: none !important;
+                visibility: visible !important;
+                opacity: 1 !important;
             }
 
             #admin-sync-btn:hover:not(:disabled) {
-                transform: scale(1.1);
-                box-shadow: 0 6px 25px rgba(37, 99, 235, 0.6);
+                transform: scale(1.1) !important;
+                box-shadow: 0 6px 25px rgba(37, 99, 235, 0.6) !important;
             }
 
             #admin-sync-btn:active:not(:disabled) {
-                transform: scale(0.95);
+                transform: scale(0.95) !important;
             }
 
             #admin-sync-btn:disabled {
-                opacity: 0.6;
-                cursor: not-allowed;
+                opacity: 0.6 !important;
+                cursor: not-allowed !important;
             }
 
             #admin-sync-btn.has-changes {
-                animation: pulse-sync 2s infinite;
-                background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-                box-shadow: 0 0 20px rgba(239, 68, 68, 0.8), 0 4px 20px rgba(239, 68, 68, 0.4);
+                animation: pulse-sync 2s infinite !important;
+                background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+                box-shadow: 0 0 20px rgba(239, 68, 68, 0.8), 0 4px 20px rgba(239, 68, 68, 0.4) !important;
             }
 
             #admin-sync-btn.syncing {
-                background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-                box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);
+                background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
+                box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4) !important;
             }
 
             @keyframes pulse-sync {
@@ -292,68 +311,110 @@ function createAdminSyncUI() {
             }
 
             #admin-sync-tooltip {
-                position: absolute;
-                bottom: 80px;
-                right: 0;
-                background: #1e293b;
-                color: white;
-                padding: 0.5rem 1rem;
-                border-radius: 0.5rem;
-                font-size: 0.75rem;
-                font-weight: 600;
-                white-space: nowrap;
-                opacity: 0;
-                pointer-events: none;
-                transition: opacity 0.3s ease;
-                z-index: 50;
-                text-align: center;
-                min-width: 200px;
+                position: absolute !important;
+                bottom: 80px !important;
+                right: 0 !important;
+                background: #1e293b !important;
+                color: white !important;
+                padding: 0.5rem 1rem !important;
+                border-radius: 0.5rem !important;
+                font-size: 0.75rem !important;
+                font-weight: 600 !important;
+                white-space: nowrap !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+                transition: opacity 0.3s ease !important;
+                z-index: 10000 !important;
+                text-align: center !important;
+                min-width: 200px !important;
             }
 
             #admin-sync-btn:hover #admin-sync-tooltip {
-                opacity: 1;
+                opacity: 1 !important;
             }
 
             #admin-sync-badge {
-                position: absolute;
-                top: -5px;
-                right: -5px;
-                background: #ef4444;
-                color: white;
-                border-radius: 50%;
-                width: 24px;
-                height: 24px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 0.75rem;
-                font-weight: bold;
-                border: 2px solid white;
-                opacity: 0;
-                transition: opacity 0.3s ease;
+                position: absolute !important;
+                top: -5px !important;
+                right: -5px !important;
+                background: #ef4444 !important;
+                color: white !important;
+                border-radius: 50% !important;
+                width: 24px !important;
+                height: 24px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                font-size: 0.75rem !important;
+                font-weight: bold !important;
+                border: 2px solid white !important;
+                opacity: 0 !important;
+                transition: opacity 0.3s ease !important;
+                z-index: 10001 !important;
             }
 
             #admin-sync-btn.has-changes #admin-sync-badge {
-                opacity: 1;
+                opacity: 1 !important;
             }
         `;
         document.head.appendChild(style);
+        console.log('[ADMIN SYNC] ✅ CSS styles injected with !important');
     }
 
-    // Buat button element
+    // Buat button element dengan lebih robust
     const btn = document.createElement('button');
     btn.id = 'admin-sync-btn';
     btn.type = 'button';
     btn.title = 'Sinkronkan perubahan ke server (Admin)';
-    btn.onclick = adminSyncToServer;
+    btn.setAttribute('aria-label', 'Tombol sinkronkan perubahan admin');
+    
+    // Tambahkan event listener yang robust
+    btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof adminSyncToServer === 'function') {
+            adminSyncToServer();
+        }
+    });
+    
     btn.innerHTML = `
         <i class="fas fa-cloud-upload-alt"></i>
         <div id="admin-sync-tooltip">Klik untuk sinkronkan perubahan ke server</div>
         <div id="admin-sync-badge">!</div>
     `;
     
-    document.body.appendChild(btn);
-    console.log('[ADMIN SYNC] 🟦 Sync button created');
+    // Append ke body
+    if (document.body) {
+        document.body.appendChild(btn);
+        console.log('[ADMIN SYNC] ✅ Sync button created and appended to body');
+        console.log('[ADMIN SYNC] 📍 Button position: fixed, bottom-right corner');
+        
+        // Verify button is in DOM
+        const checkBtn = document.getElementById('admin-sync-btn');
+        if (checkBtn) {
+            console.log('[ADMIN SYNC] ✅ Button verified in DOM');
+            console.log('[ADMIN SYNC] 📊 Button computed style:', {
+                position: window.getComputedStyle(checkBtn).position,
+                display: window.getComputedStyle(checkBtn).display,
+                visibility: window.getComputedStyle(checkBtn).visibility,
+                opacity: window.getComputedStyle(checkBtn).opacity,
+                zIndex: window.getComputedStyle(checkBtn).zIndex
+            });
+        } else {
+            console.warn('[ADMIN SYNC] ⚠️ Button NOT verified in DOM after append!');
+        }
+    } else {
+        console.error('[ADMIN SYNC] ❌ document.body is not available!');
+        // Fallback: tunggu sampai body ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                if (document.body && !document.getElementById('admin-sync-btn')) {
+                    document.body.appendChild(btn);
+                    console.log('[ADMIN SYNC] ✅ Button appended after DOMContentLoaded');
+                }
+            });
+        }
+    }
 }
 
 // Helper untuk delete admin paket soal
@@ -376,6 +437,26 @@ function deleteAdminPackageQuestions(mapel, rombel) {
 
 window.deleteAdminPackageQuestions = deleteAdminPackageQuestions;
 
+// Fallback initialization saat window load (untuk memastikan tombol dibuat)
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('[ADMIN SYNC] Window DOMContentLoaded - checking for admin...');
+        setTimeout(() => {
+            if (typeof initAdminSyncMode === 'function') {
+                initAdminSyncMode();
+            }
+        }, 500);
+    });
+} else {
+    // Jika page sudah loaded
+    console.log('[ADMIN SYNC] Window already loaded - checking for admin...');
+    setTimeout(() => {
+        if (typeof initAdminSyncMode === 'function') {
+            initAdminSyncMode();
+        }
+    }, 500);
+}
+
 function ensureQuizzActionButtons() {
     const section = document.getElementById('admin-quizz');
     if (!section) return;
@@ -392,6 +473,11 @@ function ensureQuizzActionButtons() {
 }
 
 function showAdminSection(sec) {
+    // Initialize admin sync mode (will create sync button if not exists)
+    if (typeof initAdminSyncMode === 'function') {
+        initAdminSyncMode();
+    }
+    
     const sectionEl = document.getElementById('admin-' + sec);
     if (!sectionEl) {
         console.warn('[showAdminSection] Section not found:', sec);
