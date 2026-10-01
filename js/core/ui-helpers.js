@@ -148,8 +148,6 @@ async function loadDatabaseFromServer() {
     }
 }
 
-let currentConfigType = "";
-
 function openConfigModal(type) {
     currentConfigType = type;
     document.getElementById('config-title').innerText = "Tambah " + (type === 'mapel' ? 'Mata Pelajaran' : 'Rombel');
