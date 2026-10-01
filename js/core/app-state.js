@@ -2170,6 +2170,172 @@ window.addGlobalApiKey = async function () {
     }
 };
 
+// --- UTILITY FUNCTIONS (globally required by admin.js, guru.js, formatters.js) ---
+
+/**
+ * Normalize a subject entry (either a string or an object with .name) to a plain string.
+ */
+function getSubjectName(subject) {
+    return typeof subject === 'string' ? subject : (subject && subject.name) || String(subject);
+}
+window.getSubjectName = getSubjectName;
+
+/**
+ * Populate one or more <select> elements with mapel or rombel options.
+ * @param {string[]} ids - Array of element IDs to populate.
+ * @param {boolean} includeAll - If true, prepends a "SEMUA" option with value "ALL".
+ */
+function populateSelects(ids, includeAll = false) {
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const list = id.includes('mapel') ? db.subjects : db.rombels;
+        let html = includeAll ? `<option value="ALL">SEMUA</option>` : '';
+        html += (list || []).map(item => {
+            const val = id.includes('mapel') ? getSubjectName(item) : item;
+            const display = id.includes('mapel') ? getSubjectName(item) : item;
+            return `<option value="${val}">${display}</option>`;
+        }).join('');
+        el.innerHTML = html;
+    });
+}
+window.populateSelects = populateSelects;
+
+/**
+ * Read the AI question-type counts from the modal form fields.
+ * Returns an object: { single, multiple, text, tf, matching }.
+ */
+function getAiTypeCounts() {
+    const typeCounts = { single: 0, multiple: 0, text: 0, tf: 0, matching: 0 };
+    const oldJumlah = document.getElementById('ai-jumlah');
+    const oldType = document.getElementById('ai-type');
+
+    if (oldJumlah && oldType) {
+        const chosen = (oldType.value || 'single').trim();
+        typeCounts[chosen] = Number(oldJumlah.value) || 0;
+    } else {
+        typeCounts.single   = Number(document.getElementById('ai-jml-pg')?.value)    || 0;
+        typeCounts.multiple = Number(document.getElementById('ai-jml-pgk')?.value)   || 0;
+        typeCounts.text     = Number(document.getElementById('ai-jml-esai')?.value)  || 0;
+        typeCounts.tf       = Number(document.getElementById('ai-jml-bs')?.value)    || 0;
+        typeCounts.matching = Number(document.getElementById('ai-jml-jodoh')?.value) || 0;
+    }
+
+    return typeCounts;
+}
+window.getAiTypeCounts = getAiTypeCounts;
+
+/**
+ * Shuffle the order of questions (and their answer options) in the question bank,
+ * grouped by the current admin/teacher filter (rombel / mapel).
+ * Called by the "Acak" button in Bank Soal.
+ */
+function shuffleQuestions() {
+    const isTeacher = window.isTeacherMode || (typeof currentSiswa !== 'undefined' && currentSiswa && currentSiswa.role === 'teacher');
+    let questionsToShuffleIndices = [];
+    let fM = '';
+    let fR = '';
+
+    if (isTeacher) {
+        fM = document.getElementById('teacher-filter-mapel')?.value || '';
+        fR = document.getElementById('teacher-filter-rombel')?.value || '';
+        for (let i = 0; i < db.questions.length; i++) {
+            const q = db.questions[i];
+            const qSubject = typeof q.mapel === 'string' ? q.mapel : q.mapel?.name || q.mapel;
+            if (typeof teacherSubjectNames === 'function' && !teacherSubjectNames(currentSiswa).includes(qSubject)) continue;
+            if (typeof teacherAllowedRombels === 'function') {
+                const allowed = teacherAllowedRombels(currentSiswa, qSubject);
+                if (!allowed.includes(q.rombel)) continue;
+            }
+            if (fM && qSubject !== fM) continue;
+            if (fR && q.rombel !== fR) continue;
+            questionsToShuffleIndices.push(i);
+        }
+    } else {
+        fR = document.getElementById('filter-rombel')?.value || 'ALL';
+        fM = document.getElementById('filter-mapel')?.value || 'ALL';
+        for (let i = 0; i < db.questions.length; i++) {
+            const q = db.questions[i];
+            if ((fR === 'ALL' || q.rombel === fR) && (fM === 'ALL' || q.mapel === fM)) {
+                questionsToShuffleIndices.push(i);
+            }
+        }
+    }
+
+    if (questionsToShuffleIndices.length === 0) {
+        alert('Tidak ada soal yang sesuai dengan filter saat ini untuk diacak.');
+        return;
+    }
+
+    let msg = 'Acak urutan semua soal dan opsi jawabannya?';
+    if (isTeacher) {
+        const mapelLabel  = fM ? fM : 'Semua Mapel';
+        const rombelLabel = fR ? fR : 'Semua Rombel';
+        if (fM || fR) {
+            msg = `Acak urutan ${questionsToShuffleIndices.length} soal beserta opsi jawabannya dengan filter:\nMapel: ${mapelLabel}\nRombel: ${rombelLabel}?`;
+        } else {
+            msg = `Acak urutan ${questionsToShuffleIndices.length} soal beserta opsi jawabannya milik Anda?`;
+        }
+    } else {
+        if (fR !== 'ALL' || fM !== 'ALL') {
+            const rombelLabel = fR === 'ALL' ? 'Semua Rombel' : fR;
+            const mapelLabel  = fM === 'ALL' ? 'Semua Mapel'  : fM;
+            msg = `Acak urutan ${questionsToShuffleIndices.length} soal beserta opsi jawabannya dengan filter:\nRombel: ${rombelLabel}\nMapel: ${mapelLabel}?`;
+        }
+    }
+
+    if (!confirm(msg)) return;
+
+    const filteredQuestions = questionsToShuffleIndices.map(i => db.questions[i]);
+
+    // Fisher-Yates shuffle of question order
+    for (let i = filteredQuestions.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [filteredQuestions[i], filteredQuestions[j]] = [filteredQuestions[j], filteredQuestions[i]];
+    }
+
+    // Also shuffle answer options for each question
+    filteredQuestions.forEach(q => {
+        if (!q || !Array.isArray(q.options) || q.options.length <= 1) return;
+        const qType = q.type || 'single';
+        if (qType === 'single') {
+            const origOpts = [...q.options];
+            const origCorrectIdx = typeof q.correct === 'number' ? q.correct : parseInt(q.correct);
+            const shuffleArr = arr => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
+            const shuffledIdx = shuffleArr(origOpts.map((_, i) => i));
+            q.options = shuffledIdx.map(i => origOpts[i]);
+            q.correct = (!isNaN(origCorrectIdx) && origCorrectIdx >= 0) ? shuffledIdx.indexOf(origCorrectIdx) : 0;
+        } else if (qType === 'multiple') {
+            const origOpts = [...q.options];
+            const origCorr = Array.isArray(q.correct) ? q.correct : [];
+            const shuffleArr = arr => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
+            const shuffledIdx = shuffleArr(origOpts.map((_, i) => i));
+            q.options = shuffledIdx.map(i => origOpts[i]);
+            q.correct = origCorr.map(old => shuffledIdx.indexOf(old)).filter(n => n !== -1).sort((a, b) => a - b);
+        } else if (qType === 'tf') {
+            const origOpts = [...q.options];
+            const origCorr = Array.isArray(q.correct) ? q.correct : [];
+            const shuffleArr = arr => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
+            const shuffledIdx = shuffleArr(origOpts.map((_, i) => i));
+            q.options = shuffledIdx.map(i => origOpts[i]);
+            q.correct = shuffledIdx.map(old => origCorr[old] ?? false);
+        }
+    });
+
+    for (let i = 0; i < questionsToShuffleIndices.length; i++) {
+        db.questions[questionsToShuffleIndices[i]] = filteredQuestions[i];
+    }
+
+    save();
+    if (isTeacher) {
+        if (typeof renderTeacherQuestions === 'function') renderTeacherQuestions();
+    } else {
+        if (typeof renderAdminQuestions === 'function') renderAdminQuestions();
+    }
+    if (typeof showToast === 'function') showToast('Berhasil mengacak urutan soal dan opsi jawaban!', 'success');
+}
+window.shuffleQuestions = shuffleQuestions;
+
 // --- INIT ---
 window.addEventListener('load', async () => {
     // Fallback: Hide loading overlay after 3 seconds regardless
