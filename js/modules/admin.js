@@ -1116,3 +1116,93 @@ function deleteFilteredQuestions() {
 
 window.deleteFilteredQuestions = deleteFilteredQuestions;
 
+function normalizeStudentRecord(student, fallbackIndex = 0) {
+    if (!student || typeof student !== 'object') return null;
+
+    const rawRole = String(student.role ?? student.userRole ?? student.level ?? student.jenis ?? '').trim().toLowerCase();
+    const normalizedRole = rawRole === 'admin' || rawRole === 'administrator'
+        ? 'admin'
+        : rawRole === 'teacher' || rawRole === 'guru' || rawRole === 'pengajar'
+            ? 'teacher'
+            : rawRole === 'student' || rawRole === 'siswa' || rawRole === 'murid' || rawRole === ''
+                ? 'student'
+                : rawRole || 'student';
+
+    const id = String(student.id ?? student.studentId ?? student.nisn ?? student.username ?? '').trim() || `DRKS-${fallbackIndex + 1}`;
+    const name = String(student.name ?? student.nama ?? student.fullName ?? student.full_name ?? student.studentName ?? student.student_name ?? '').trim() || `Siswa ${fallbackIndex + 1}`;
+    const rombel = String(student.rombel ?? student.kelas ?? student.kelasName ?? student.className ?? student.group ?? '').trim() || '-';
+    const password = String(student.password ?? student.sandi ?? student.pass ?? student.pwd ?? 'escrido').trim() || 'escrido';
+
+    return { ...student, id, name, rombel, password, role: normalizedRole };
+}
+
+if (typeof window.renderAdminStudents !== 'function') {
+    window.renderAdminStudents = function renderAdminStudents() {
+        const tbody = document.getElementById('students-table-body');
+        const filterSelect = document.getElementById('students-filter-rombel');
+        const rawStudents = Array.isArray(window.db?.students) ? window.db.students : [];
+        const normalizedStudents = rawStudents
+            .map((student, index) => normalizeStudentRecord(student, index))
+            .filter(Boolean);
+        const studentList = normalizedStudents.filter(s => s.role !== 'admin');
+        const selectedRombel = filterSelect ? filterSelect.value : '';
+
+        if (filterSelect) {
+            const current = filterSelect.value;
+            const uniqueRombels = [...new Set(studentList.map(s => String(s.rombel || '').trim()).filter(Boolean))];
+            const options = ['<option value="">Semua</option>'];
+            const allRombels = [...new Set([...(window.db?.rombels || []), ...uniqueRombels])];
+            allRombels.forEach(r => {
+                const value = String(r || '').trim();
+                if (!value) return;
+                options.push(`<option value="${value}"${value === current ? ' selected' : ''}>${value}</option>`);
+            });
+            filterSelect.innerHTML = options.join('');
+        }
+
+        let list = [...studentList];
+        if (selectedRombel) {
+            list = list.filter(s => String(s.rombel || '').trim() === String(selectedRombel).trim());
+        }
+
+        list.sort((a, b) => {
+            const rombelCompare = String(a.rombel || '').localeCompare(String(b.rombel || ''));
+            if (rombelCompare !== 0) return rombelCompare;
+            return String(a.name || '').localeCompare(String(b.name || ''));
+        });
+
+        if (!tbody) return;
+
+        if (list.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="4" class="px-6 py-8 text-center text-slate-400 italic font-medium">Belum ada peserta didik yang tampil untuk filter ini.</td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = list.map(s => {
+            const safeId = String(s.id || '').replace(/'/g, "\\'");
+            const safeName = String(s.name || 'Tanpa Nama').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const safePassword = String(s.password || '—').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const safeRombel = String(s.rombel || '-').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+            return `
+                <tr>
+                    <td class="px-6 py-4 font-bold text-slate-700">${safeName}</td>
+                    <td class="px-6 py-4 text-xs font-semibold text-slate-500">${safeRombel}</td>
+                    <td class="px-6 py-4"><span class="bg-slate-50 border border-slate-100 px-2 py-1 rounded font-bold text-sky-600 text-[10px] tracking-widest">${String(s.id || '—')} / ${safePassword}</span></td>
+                    <td class="px-6 py-4 text-center">
+                        <div class="flex items-center justify-center gap-1">
+                            <button onclick="editStudent('${safeId}')" class="w-8 h-8 rounded-lg bg-sky-50 text-sky-500 hover:bg-sky-100 transition-all flex items-center justify-center" title="Edit Data"><i class="fas fa-edit text-xs"></i></button>
+                            <button onclick="resetStudentResults('${safeId}')" class="w-8 h-8 rounded-lg bg-amber-50 text-amber-500 hover:bg-amber-100 transition-all flex items-center justify-center" title="Reset Hasil Ujian"><i class="fas fa-sync-alt text-xs"></i></button>
+                            <button onclick="deleteStudent('${safeId}')" class="w-8 h-8 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-all flex items-center justify-center" title="Hapus"><i class="fas fa-trash text-xs"></i></button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    };
+}
+
