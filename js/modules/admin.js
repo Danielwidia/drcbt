@@ -1690,7 +1690,7 @@ function openStudentModal() {
 window.openStudentModal = openStudentModal;
 
 function editStudent(id) {
-    const students = Array.isArray(window.db?.students) ? window.db.students : [];
+    const students = Array.isArray(window.db?.students) ? db.students : [];
     const s = students.find(x => String(x.id) === String(id));
     if (!s) return alert('Siswa tidak ditemukan');
 
@@ -1768,7 +1768,7 @@ window.saveStudent = saveStudent;
 
 async function deleteStudent(id) {
     if (!confirm('Hapus siswa ini?')) return;
-    const students = Array.isArray(window.db?.students) ? window.db.students : [];
+    const students = Array.isArray(window.db?.students) ? db.students : [];
     window.db.students = students.filter(x => String(x.id) !== String(id));
     if (typeof updateCompletionCharts === 'function') updateCompletionCharts();
 
@@ -1836,4 +1836,69 @@ if (typeof window.deleteStudent !== 'function') {
 if (typeof window.resetStudentResults !== 'function') {
     window.resetStudentResults = resetStudentResults;
 }
+
+function renderAdminStudents() {
+    const tbody = document.getElementById('students-table-body');
+    const filterSelect = document.getElementById('students-filter-rombel');
+    const selectedRombel = filterSelect ? filterSelect.value : '';
+
+    if (filterSelect) {
+        const current = filterSelect.value;
+        const rombels = Array.isArray(window.db?.rombels) ? window.db.rombels : [];
+        filterSelect.innerHTML = '<option value="">Semua</option>' + rombels.map(r => `<option value="${r}"${r === current ? ' selected' : ''}>${r}</option>`).join('');
+        if (!current || !rombels.includes(current)) {
+            filterSelect.value = '';
+        }
+    }
+
+    let list = (Array.isArray(window.db?.students) ? db.students : []).filter(x => String(x.role || '') !== 'admin');
+
+    if (selectedRombel) {
+        list = list.filter(s => String(s.rombel || '') === String(selectedRombel));
+    }
+
+    list.sort((a, b) => {
+        const aName = String(a.name || '');
+        const bName = String(b.name || '');
+        if (String(a.rombel || '') === String(b.rombel || '')) return aName.localeCompare(bName);
+        return String(a.rombel || '').localeCompare(String(b.rombel || ''));
+    });
+
+    if (!tbody) return;
+
+    if (!list.length) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="4" class="px-6 py-12 text-center text-slate-500 text-sm">
+                    <div class="flex flex-col items-center gap-3">
+                        <i class="fas fa-user-slash text-3xl text-slate-300"></i>
+                        <span>Belum ada siswa yang terdaftar.</span>
+                    </div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = list.map(s => `
+        <tr>
+            <td class="px-6 py-4 font-bold text-slate-700">${s.name || '-'}</td>
+            <td class="px-6 py-4 text-xs font-semibold text-slate-500">${s.rombel || '-'}</td>
+            <td class="px-6 py-4">
+                <span class="bg-slate-50 border border-slate-100 px-2 py-1 rounded font-bold text-sky-600 text-[10px] tracking-widest">
+                    ${s.id || '-'} / ${s.password || '-'}
+                </span>
+            </td>
+            <td class="px-6 py-4 text-center">
+                <div class="flex items-center justify-center gap-1">
+                    <button onclick="editStudent('${String(s.id || '').replace(/'/g, "\\'")}')" class="w-8 h-8 rounded-lg bg-sky-50 text-sky-500 hover:bg-sky-100 transition-all flex items-center justify-center" title="Edit Data"><i class="fas fa-edit text-xs"></i></button>
+                    <button onclick="resetStudentResults('${String(s.id || '').replace(/'/g, "\\'")}')" class="w-8 h-8 rounded-lg bg-amber-50 text-amber-500 hover:bg-amber-100 transition-all flex items-center justify-center" title="Reset Hasil Ujian"><i class="fas fa-sync-alt text-xs"></i></button>
+                    <button onclick="deleteStudent('${String(s.id || '').replace(/'/g, "\\'")}')" class="w-8 h-8 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-all flex items-center justify-center" title="Hapus"><i class="fas fa-trash text-xs"></i></button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+window.renderAdminStudents = renderAdminStudents;
 
