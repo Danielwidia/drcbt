@@ -1603,7 +1603,11 @@ function importQuestionsExcel() {
 }
 
 async function openImportModal() {
-    populateSelects(['import-mapel', 'import-rombel']);
+    if (typeof populateSelects === 'function') {
+        populateSelects(['import-mapel', 'import-rombel']);
+    } else if (typeof window.populateSelects === 'function') {
+        window.populateSelects(['import-mapel', 'import-rombel']);
+    }
     if (window.isTeacherMode) {
         const mapelSelect = document.getElementById('import-mapel');
         const teacherSubjects = teacherSubjectNames(currentSiswa);
