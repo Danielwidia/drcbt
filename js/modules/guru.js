@@ -1661,6 +1661,30 @@ function exportQuestionsWord() {
 
     htmlContent += `</div>`;
 
+    const sanitizedMapel = mapelInfo.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sanitizedRombel = rombelInfo.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const timestamp = new Date().getTime();
+    const filename = `BankSoal_${sanitizedMapel}_${sanitizedRombel}_${timestamp}`;
+
+    // 1. Primary Method: Convert using htmlDocx library to true OpenXML .docx
+    if (typeof htmlDocx !== 'undefined' && typeof htmlDocx.asBlob === 'function') {
+        const fullDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Bank Soal CBT</title></head><body>${htmlContent}</body></html>`;
+        const blob = htmlDocx.asBlob(fullDoc, {
+            orientation: 'portrait',
+            margins: { top: 720, right: 720, bottom: 720, left: 720 }
+        });
+        const fileDownload = document.createElement("a");
+        document.body.appendChild(fileDownload);
+        const downloadUrl = URL.createObjectURL(blob);
+        fileDownload.href = downloadUrl;
+        fileDownload.download = `${filename}.docx`;
+        fileDownload.click();
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 100);
+        document.body.removeChild(fileDownload);
+        return;
+    }
+
+    // 2. Fallback Method: HTML Blob with UTF-8 BOM saved as .doc (natively opened by MS Word & WPS)
     const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' " +
         "xmlns:w='urn:schemas-microsoft-com:office:word' " +
         "xmlns='http://www.w3.org/TR/REC-html40'>" +
@@ -1670,14 +1694,12 @@ function exportQuestionsWord() {
     const footer = "</body></html>";
     const sourceHTML = header + htmlContent + footer;
 
-    const blob = new Blob([sourceHTML], { type: 'application/msword;charset=utf-8' });
+    const blob = new Blob(['\ufeff' + sourceHTML], { type: 'application/msword;charset=utf-8' });
     const fileDownload = document.createElement("a");
     document.body.appendChild(fileDownload);
     const downloadUrl = URL.createObjectURL(blob);
     fileDownload.href = downloadUrl;
-    const sanitizedMapel = mapelInfo.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const sanitizedRombel = rombelInfo.replace(/[^a-zA-Z0-9_-]/g, '_');
-    fileDownload.download = `BankSoal_${sanitizedMapel}_${sanitizedRombel}_${new Date().getTime()}.docx`;
+    fileDownload.download = `${filename}.doc`;
     fileDownload.click();
     setTimeout(() => URL.revokeObjectURL(downloadUrl), 100);
     document.body.removeChild(fileDownload);
