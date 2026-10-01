@@ -3,6 +3,102 @@
  * Part of CBT application refactored module
  */
 
+// ===== ADMIN SYNC MODE =====
+// State untuk mendeteksi perubahan belum disinkronkan ke server
+let adminSyncState = {
+    isAdminMode: false,
+    hasUnsyncedChanges: false,
+    isSyncing: false,
+    lastSyncTime: null
+};
+
+// Fungsi untuk menandai ada perubahan belum disinkronkan
+function markAdminChanges() {
+    if (adminSyncState.isAdminMode && !adminSyncState.isSyncing) {
+        adminSyncState.hasUnsyncedChanges = true;
+        updateAdminSyncIndicator();
+    }
+}
+
+// Update visual indicator untuk perubahan yang belum disinkronkan
+function updateAdminSyncIndicator() {
+    const syncBtn = document.getElementById('admin-sync-btn');
+    if (!syncBtn) return;
+
+    if (adminSyncState.hasUnsyncedChanges) {
+        syncBtn.classList.add('has-changes');
+        syncBtn.style.animation = 'pulse-sync 2s infinite';
+    } else {
+        syncBtn.classList.remove('has-changes');
+        syncBtn.style.animation = 'none';
+    }
+}
+
+// Fungsi khusus save untuk admin (hanya localStorage, tidak ke server)
+async function adminSave(options = {}) {
+    if (!adminSyncState.isAdminMode) {
+        // Bukan admin, lanjut ke save normal
+        return save(options);
+    }
+
+    // Admin: Hanya save ke localStorage
+    try {
+        await saveLocalDb();
+        updateStats();
+        console.log('[ADMIN] Perubahan tersimpan lokal (belum ke server)');
+    } catch (err) {
+        console.warn('[ADMIN] LocalStorage save failed:', err.message || err);
+    }
+}
+
+// Fungsi sinkronisasi ke server (dipanggil saat tombol diklik)
+async function adminSyncToServer() {
+    if (!adminSyncState.isAdminMode) return;
+    if (adminSyncState.isSyncing) return;
+
+    adminSyncState.isSyncing = true;
+    const syncBtn = document.getElementById('admin-sync-btn');
+    if (syncBtn) {
+        syncBtn.disabled = true;
+        syncBtn.classList.add('syncing');
+        syncBtn.innerHTML = '<i class="fas fa-sync-alt animate-spin"></i> <span>Menyinkronkan...</span>';
+    }
+
+    try {
+        // Panggil fungsi save() asli untuk mengirim ke server
+        await save({ forceServerSave: true });
+        
+        adminSyncState.hasUnsyncedChanges = false;
+        adminSyncState.lastSyncTime = new Date();
+        
+        // Tampilkan pesan sukses
+        if (typeof showToast === 'function') {
+            showToast('✅ Perubahan berhasil disinkronkan ke server!', 'success');
+        } else {
+            alert('✅ Perubahan berhasil disinkronkan ke server!');
+        }
+        
+        console.log('[ADMIN SYNC] ✅ Berhasil sinkronkan ke server');
+    } catch (err) {
+        console.error('[ADMIN SYNC] ❌ Error:', err.message || err);
+        if (typeof showToast === 'function') {
+            showToast('❌ Gagal sinkronkan ke server: ' + (err.message || err), 'error');
+        } else {
+            alert('❌ Gagal sinkronkan: ' + (err.message || err));
+        }
+    } finally {
+        adminSyncState.isSyncing = false;
+        if (syncBtn) {
+            syncBtn.disabled = false;
+            syncBtn.classList.remove('syncing');
+            updateAdminSyncIndicator();
+        }
+    }
+}
+
+// Register global function
+window.adminSyncToServer = adminSyncToServer;
+
 (function ensureAdminGlobalHandlers() {
     const fallback = (name, action) => {
         if (typeof window[name] !== 'function') {
@@ -81,7 +177,12 @@
             db.students = db.students.filter(s => s.id !== id);
             // Reset flag agar data di-fetch ulang dari server saat berikutnya dibuka
             _hasLoadedFlags.students = false;
-            await save();
+            if (adminSyncState.isAdminMode) {
+                await adminSave();
+                markAdminChanges();
+            } else {
+                await save();
+            }
             // Re-fetch dari server untuk memastikan state benar-benar sinkron
             await ensureDataLoaded('students', true);
             renderTeachersList();
@@ -95,6 +196,185 @@
         }
     });
 })();
+
+// Initialize Admin Sync Mode
+(function initAdminSyncMode() {
+    // Cek apakah user adalah admin
+    const currentUser = typeof currentSiswa !== 'undefined' ? currentSiswa : null;
+    if (currentUser && currentUser.role === 'admin') {
+        adminSyncState.isAdminMode = true;
+        console.log('[ADMIN SYNC] 🔒 Admin mode activated - changes will be staged locally');
+        
+        // Create sync button UI
+        setTimeout(() => {
+            createAdminSyncUI();
+        }, 100);
+    }
+})();
+
+// Buat UI tombol sinkron
+function createAdminSyncUI() {
+    // Cek apakah sudah ada
+    if (document.getElementById('admin-sync-btn')) return;
+    
+    // Buat CSS untuk animation
+    const styleId = 'admin-sync-styles';
+    if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.innerHTML = `
+            #admin-sync-btn {
+                position: fixed;
+                bottom: 2rem;
+                right: 2rem;
+                z-index: 40;
+                width: 60px;
+                height: 60px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+                color: white;
+                border: none;
+                cursor: pointer;
+                box-shadow: 0 4px 20px rgba(37, 99, 235, 0.4);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 1.5rem;
+                transition: all 0.3s ease;
+                font-weight: bold;
+                text-align: center;
+                padding: 0;
+            }
+
+            #admin-sync-btn:hover:not(:disabled) {
+                transform: scale(1.1);
+                box-shadow: 0 6px 25px rgba(37, 99, 235, 0.6);
+            }
+
+            #admin-sync-btn:active:not(:disabled) {
+                transform: scale(0.95);
+            }
+
+            #admin-sync-btn:disabled {
+                opacity: 0.6;
+                cursor: not-allowed;
+            }
+
+            #admin-sync-btn.has-changes {
+                animation: pulse-sync 2s infinite;
+                background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+                box-shadow: 0 0 20px rgba(239, 68, 68, 0.8), 0 4px 20px rgba(239, 68, 68, 0.4);
+            }
+
+            #admin-sync-btn.syncing {
+                background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+                box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);
+            }
+
+            @keyframes pulse-sync {
+                0% {
+                    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7), 0 4px 20px rgba(239, 68, 68, 0.4);
+                }
+                50% {
+                    box-shadow: 0 0 30px 10px rgba(239, 68, 68, 0.3), 0 4px 20px rgba(239, 68, 68, 0.4);
+                }
+                100% {
+                    box-shadow: 0 0 0 20px rgba(239, 68, 68, 0), 0 4px 20px rgba(239, 68, 68, 0.4);
+                }
+            }
+
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+
+            .animate-spin {
+                animation: spin 1s linear infinite;
+            }
+
+            #admin-sync-tooltip {
+                position: absolute;
+                bottom: 80px;
+                right: 0;
+                background: #1e293b;
+                color: white;
+                padding: 0.5rem 1rem;
+                border-radius: 0.5rem;
+                font-size: 0.75rem;
+                font-weight: 600;
+                white-space: nowrap;
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.3s ease;
+                z-index: 50;
+                text-align: center;
+                min-width: 200px;
+            }
+
+            #admin-sync-btn:hover #admin-sync-tooltip {
+                opacity: 1;
+            }
+
+            #admin-sync-badge {
+                position: absolute;
+                top: -5px;
+                right: -5px;
+                background: #ef4444;
+                color: white;
+                border-radius: 50%;
+                width: 24px;
+                height: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 0.75rem;
+                font-weight: bold;
+                border: 2px solid white;
+                opacity: 0;
+                transition: opacity 0.3s ease;
+            }
+
+            #admin-sync-btn.has-changes #admin-sync-badge {
+                opacity: 1;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // Buat button element
+    const btn = document.createElement('button');
+    btn.id = 'admin-sync-btn';
+    btn.type = 'button';
+    btn.title = 'Sinkronkan perubahan ke server (Admin)';
+    btn.onclick = adminSyncToServer;
+    btn.innerHTML = `
+        <i class="fas fa-cloud-upload-alt"></i>
+        <div id="admin-sync-tooltip">Klik untuk sinkronkan perubahan ke server</div>
+        <div id="admin-sync-badge">!</div>
+    `;
+    
+    document.body.appendChild(btn);
+    console.log('[ADMIN SYNC] 🟦 Sync button created');
+}
+
+// Helper untuk delete admin paket soal
+function deleteAdminPackageQuestions(mapel, rombel) {
+    if (confirm(`Hapus semua soal untuk ${mapel} / ${rombel}?`)) {
+        db.questions = db.questions.filter(q => !(q.mapel === mapel && q.rombel === rombel));
+        if (adminSyncState.isAdminMode) {
+            adminSave();
+            markAdminChanges();
+        } else {
+            save();
+        }
+        if (typeof renderAdminPaketSoal === 'function') renderAdminPaketSoal();
+        if (currentDetailPackage && currentDetailPackage.mapel === mapel && currentDetailPackage.rombel === rombel) {
+            currentDetailPackage = null;
+            if (typeof switchAdminBankSoalTab === 'function') switchAdminBankSoalTab('paket');
+        }
+    }
+}
+
+window.deleteAdminPackageQuestions = deleteAdminPackageQuestions;
 
 function ensureQuizzActionButtons() {
     const section = document.getElementById('admin-quizz');
@@ -503,7 +783,16 @@ if (typeof window.batchAiCorrectAllStudents !== 'function') {
         });
 
         if (qLabel) qLabel.textContent = 'Menyimpan ke database...';
-        try { if (typeof save === 'function') await save(); } catch (e) { console.error('[AI-Group] Final save error:', e.message); }
+        try {
+            if (adminSyncState.isAdminMode) {
+                await adminSave();
+                markAdminChanges();
+            } else {
+                if (typeof save === 'function') await save();
+            }
+        } catch (e) {
+            console.error('[AI-Group] Final save error:', e.message);
+        }
 
         overlay.remove();
 
@@ -555,7 +844,12 @@ if (typeof window.cleanCorruptedResults !== 'function') {
 
         if (cleanedCount > 0) {
             if (typeof loadedCollections !== 'undefined') loadedCollections.results = true;
-            if (typeof save === 'function') save();
+            if (adminSyncState.isAdminMode) {
+                adminSave();
+                markAdminChanges();
+            } else {
+                if (typeof save === 'function') save();
+            }
             if (typeof updateCompletionCharts === 'function') updateCompletionCharts();
             if (typeof renderAdminResults === 'function') renderAdminResults();
             alert(`✅ SUKSES!\n\n${cleanedCount} hasil ujian corrupt telah dibersihkan dan disimpan ke server.`);
@@ -737,7 +1031,12 @@ async function saveSchedules() {
 
     db.schedules = newSchedules;
 
-    await save({ refreshBeforeSave: true });
+    if (adminSyncState.isAdminMode) {
+        await adminSave();
+        markAdminChanges();
+    } else {
+        await save({ refreshBeforeSave: true });
+    }
 
     closeModals();
     alert('Jadwal akses tersimpan!');
@@ -867,7 +1166,7 @@ function renderAdminPaketSoal() {
                     <button type="button" onclick="currentDetailPackage = { mapel: '${item.mapel}', rombel: '${item.rombel}' }; switchAdminBankSoalTab('detail');" class="p-2 text-sky-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" title="Lihat Detail">
                         <i class="fas fa-eye"></i>
                     </button>
-                    <button type="button" onclick="if (confirm('Hapus semua soal untuk ${item.mapel} / ${item.rombel}?')) { db.questions = db.questions.filter(q => !(q.mapel === '${item.mapel}' && q.rombel === '${item.rombel}')); save(); renderAdminPaketSoal(); if (currentDetailPackage && currentDetailPackage.mapel === '${item.mapel}' && currentDetailPackage.rombel === '${item.rombel}') { currentDetailPackage = null; switchAdminBankSoalTab('paket'); } }" class="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Hapus Paket">
+                    <button type="button" onclick="deleteAdminPackageQuestions('${item.mapel}', '${item.rombel}')" class="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Hapus Paket">
                         <i class="fas fa-trash"></i>
                     </button>
                 </div>
@@ -1072,7 +1371,12 @@ function deleteSelectedAdminQuestions() {
     loadedCollections.questions = true;
     db.questions = db.questions.filter(q => !selectedAdminQuestions.has(q));
     selectedAdminQuestions.clear();
-    save();
+    if (adminSyncState.isAdminMode) {
+        adminSave();
+        markAdminChanges();
+    } else {
+        save();
+    }
     if (typeof renderAdminQuestions === 'function') renderAdminQuestions();
     if (typeof updateStats === 'function') updateStats();
 }
@@ -1108,7 +1412,12 @@ function deleteFilteredQuestions() {
     );
 
     selectedAdminQuestions.clear();
-    save();
+    if (adminSyncState.isAdminMode) {
+        adminSave();
+        markAdminChanges();
+    } else {
+        save();
+    }
     if (typeof renderAdminQuestions === 'function') renderAdminQuestions();
     if (typeof updateStats === 'function') updateStats();
     alert(`${toDelete.length} soal berhasil dihapus.`);
