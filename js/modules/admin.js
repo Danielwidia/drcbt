@@ -63,10 +63,13 @@ async function adminSyncToServer() {
 
     adminSyncState.isSyncing = true;
     const syncBtn = document.getElementById('admin-sync-btn');
+    const originalInnerHTML = '<i class="fas fa-cloud-upload-alt"></i><div id="admin-sync-tooltip">Klik untuk sinkronkan perubahan ke server</div><div id="admin-sync-badge">!</div>';
+    
     if (syncBtn) {
         syncBtn.disabled = true;
         syncBtn.classList.add('syncing');
-        syncBtn.innerHTML = '<i class="fas fa-sync-alt animate-spin"></i> <span>Menyinkronkan...</span>';
+        // Hanya animasi icon, tanpa tulisan
+        syncBtn.innerHTML = '<i class="fas fa-sync-alt animate-spin"></i>';
     }
 
     try {
@@ -96,6 +99,8 @@ async function adminSyncToServer() {
         if (syncBtn) {
             syncBtn.disabled = false;
             syncBtn.classList.remove('syncing');
+            // Restore innerHTML ke asli
+            syncBtn.innerHTML = originalInnerHTML;
             updateAdminSyncIndicator();
         }
     }
