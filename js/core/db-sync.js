@@ -108,9 +108,50 @@ function normalizeDb(d, existing = {}) {
         normalizedStudents.unshift({ id: 'ADM', password: 'admin321', name: 'Administrator', role: 'admin' });
     }
 
+    // Safely merge subjects (union of server + local cache)
+    const getSubName = s => (typeof s === 'object' && s !== null ? s.name : s);
+    const serverSubjects = Array.isArray(d.subjects) ? d.subjects : [];
+    const localSubjects = Array.isArray(existing.subjects) ? existing.subjects : [];
+    const mergedSubjects = [];
+    const seenSubjects = new Set();
+
+    serverSubjects.forEach(s => {
+        const name = getSubName(s);
+        if (name && !seenSubjects.has(name)) {
+            seenSubjects.add(name);
+            mergedSubjects.push(s);
+        }
+    });
+    localSubjects.forEach(s => {
+        const name = getSubName(s);
+        if (name && !seenSubjects.has(name)) {
+            seenSubjects.add(name);
+            mergedSubjects.push(s);
+        }
+    });
+
+    // Safely merge rombels (union of server + local cache)
+    const serverRombels = Array.isArray(d.rombels) ? d.rombels : [];
+    const localRombels = Array.isArray(existing.rombels) ? existing.rombels : [];
+    const mergedRombels = [];
+    const seenRombels = new Set();
+
+    serverRombels.forEach(r => {
+        if (r && !seenRombels.has(r)) {
+            seenRombels.add(r);
+            mergedRombels.push(r);
+        }
+    });
+    localRombels.forEach(r => {
+        if (r && !seenRombels.has(r)) {
+            seenRombels.add(r);
+            mergedRombels.push(r);
+        }
+    });
+
     return {
-        subjects: Array.isArray(d.subjects) ? d.subjects : (existing.subjects || []),
-        rombels: Array.isArray(d.rombels) ? d.rombels : (existing.rombels || []),
+        subjects: mergedSubjects.length > 0 ? mergedSubjects : (Array.isArray(d.subjects) ? d.subjects : (existing.subjects || [])),
+        rombels: mergedRombels.length > 0 ? mergedRombels : (Array.isArray(d.rombels) ? d.rombels : (existing.rombels || [])),
         questions: Array.isArray(d.questions) ? d.questions : (existing.questions || []),
         quizzes: Array.isArray(d.quizzes) ? d.quizzes : (existing.quizzes || []),
         students: normalizedStudents,

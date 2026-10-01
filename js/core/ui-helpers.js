@@ -155,18 +155,29 @@ function openConfigModal(type) {
 }
 
 function saveConfig() {
-    const val = document.getElementById('config-input').value.trim();
+    const input = document.getElementById('config-input');
+    const val = input ? input.value.trim() : '';
     if (!val) return;
+
+    if (!Array.isArray(db.subjects)) db.subjects = [];
+    if (!Array.isArray(db.rombels)) db.rombels = [];
+
     if (currentConfigType === 'mapel') {
-        if (!db.subjects.find(s => (typeof s === 'object' ? s.name : s) === val)) {
+        const exists = db.subjects.some(s => (typeof s === 'object' && s !== null ? s.name : s) === val);
+        if (!exists) {
             db.subjects.push({ name: val, locked: false });
         }
     } else {
-        db.rombels.push(val);
+        if (!db.rombels.includes(val)) {
+            db.rombels.push(val);
+        }
     }
-    save();
+
+    save({ forceServerSave: true });
+    if (input) input.value = '';
     closeModals();
-    showAdminSection('rombel');
+    if (typeof renderRombelSection === 'function') renderRombelSection();
+    if (typeof showAdminSection === 'function') showAdminSection('rombel');
 }
 
 function exportDatabase() {

@@ -678,15 +678,17 @@ async function save(options = {}) {
             const res = await fetch(getApiBaseUrl() + '/api/db?t=' + Date.now());
             if (res.ok) {
                 const serverDb = await res.json();
-                if (serverDb && serverDb.students) {
-                    // Merge results from server to local state
+                if (serverDb) {
+                    // Merge results from server to local state so student exam submissions are not lost
                     if (serverDb.results) db.results = mergeResults(db.results, serverDb.results);
 
-                    // Keep the current local state as higher priority while preventing stale overwrites.
-                    if (serverDb.questions) db.questions = Array.isArray(serverDb.questions) ? serverDb.questions : db.questions;
-                    if (serverDb.students) db.students = Array.isArray(serverDb.students) ? serverDb.students : db.students;
-                    if (serverDb.subjects) db.subjects = Array.isArray(serverDb.subjects) ? serverDb.subjects : db.subjects;
-                    if (serverDb.rombels) db.rombels = Array.isArray(serverDb.rombels) ? serverDb.rombels : db.rombels;
+                    // Fill local arrays if empty, but NEVER overwrite local admin edits
+                    if (serverDb.questions && (!db.questions || db.questions.length === 0)) {
+                        db.questions = Array.isArray(serverDb.questions) ? serverDb.questions : [];
+                    }
+                    if (serverDb.students && (!db.students || db.students.length <= 1)) {
+                        db.students = Array.isArray(serverDb.students) ? serverDb.students : [];
+                    }
                 }
             }
         } catch (e) {
@@ -2386,12 +2388,7 @@ window.exportQuestions = exportQuestions;
 function deleteMapel(name) {
     if (confirm(`Hapus mata pelajaran "${name}"?`)) {
         db.subjects = (db.subjects || []).filter(s => getSubjectName(s) !== name);
-        if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
-            if (typeof adminSave === 'function') adminSave();
-            if (typeof markAdminChanges === 'function') markAdminChanges();
-        } else if (typeof save === 'function') {
-            save();
-        }
+        save({ forceServerSave: true });
         renderRombelSection();
     }
 }
@@ -2403,12 +2400,7 @@ window.deleteMapel = deleteMapel;
 function deleteRombel(name) {
     if (confirm(`Hapus rombel "${name}"?`)) {
         db.rombels = (db.rombels || []).filter(r => r !== name);
-        if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
-            if (typeof adminSave === 'function') adminSave();
-            if (typeof markAdminChanges === 'function') markAdminChanges();
-        } else if (typeof save === 'function') {
-            save();
-        }
+        save({ forceServerSave: true });
         renderRombelSection();
     }
 }
