@@ -2336,6 +2336,50 @@ function shuffleQuestions() {
 }
 window.shuffleQuestions = shuffleQuestions;
 
+/**
+ * Export questions as JSON file based on active filters (admin or teacher context).
+ */
+function exportQuestions() {
+    let questionsToExport = [];
+    const isTeacher = window.isTeacherMode || (typeof currentSiswa !== 'undefined' && currentSiswa && currentSiswa.role === 'teacher');
+
+    if (isTeacher) {
+        const fM = document.getElementById('teacher-filter-mapel')?.value || '';
+        const fR = document.getElementById('teacher-filter-rombel')?.value || '';
+        questionsToExport = db.questions.filter(q => {
+            const qSubject = typeof q.mapel === 'string' ? q.mapel : q.mapel?.name || q.mapel;
+            if (typeof teacherSubjectNames === 'function' && !teacherSubjectNames(currentSiswa).includes(qSubject)) return false;
+            if (typeof teacherAllowedRombels === 'function') {
+                const allowed = teacherAllowedRombels(currentSiswa, qSubject);
+                if (!allowed.includes(q.rombel)) return false;
+            }
+            if (fM && qSubject !== fM) return false;
+            if (fR && q.rombel !== fR) return false;
+            return true;
+        });
+    } else {
+        const fR = document.getElementById('filter-rombel')?.value || 'ALL';
+        const fM = document.getElementById('filter-mapel')?.value || 'ALL';
+        questionsToExport = db.questions.filter(q =>
+            (fR === 'ALL' || q.rombel === fR) && (fM === 'ALL' || q.mapel === fM)
+        );
+    }
+
+    if (questionsToExport.length === 0) {
+        alert('Tidak ada soal yang bisa diexport berdasarkan filter saat ini.');
+        return;
+    }
+
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(questionsToExport, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", `soal_cbt_export_${new Date().getTime()}.json`);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+}
+window.exportQuestions = exportQuestions;
+
 // --- INIT ---
 window.addEventListener('load', async () => {
     // Fallback: Hide loading overlay after 3 seconds regardless
