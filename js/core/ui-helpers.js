@@ -148,10 +148,27 @@ async function loadDatabaseFromServer() {
     }
 }
 
+let currentConfigType = "";
+
 function openConfigModal(type) {
     currentConfigType = type;
     document.getElementById('config-title').innerText = "Tambah " + (type === 'mapel' ? 'Mata Pelajaran' : 'Rombel');
     document.getElementById('config-modal').classList.replace('hidden', 'flex');
+}
+
+function saveConfig() {
+    const val = document.getElementById('config-input').value.trim();
+    if (!val) return;
+    if (currentConfigType === 'mapel') {
+        if (!db.subjects.find(s => (typeof s === 'object' ? s.name : s) === val)) {
+            db.subjects.push({ name: val, locked: false });
+        }
+    } else {
+        db.rombels.push(val);
+    }
+    save();
+    closeModals();
+    showAdminSection('rombel');
 }
 
 function exportDatabase() {
