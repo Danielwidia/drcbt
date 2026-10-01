@@ -2119,15 +2119,11 @@ window.deleteRaportEntry = async function(studentId, mapel) {
 
 
 // Make function globally accessible
+function removeTeacherAPIKey(index) { console.warn('removeTeacherAPIKey is not fully implemented in this module'); }
 window.removeTeacherAPIKey = removeTeacherAPIKey;
 
 // Stub helper functions for API key management
-
-
-
-
-
-
+function toggleGlobalAPIKeysList() { console.warn('toggleGlobalAPIKeysList is not fully implemented in this module'); }
 
 // Make function globally accessible
 window.toggleGlobalAPIKeysList = toggleGlobalAPIKeysList;
