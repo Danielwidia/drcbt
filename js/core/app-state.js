@@ -1508,609 +1508,207 @@ async function applyEssayScore(resultIdx, qIdx, rawScore) {
     }
 }
 
-function saveConfig() {
-    const val = document.getElementById('config-input').value.trim();
-    if (!val) return;
-    if (currentConfigType === 'mapel') {
-        // Check if subject already exists
-        if (!db.subjects.find(s => getSubjectName(s) === val)) {
-            db.subjects.push({ name: val, locked: false });
-        }
-    } else {
-        db.rombels.push(val);
+const SCHOOL_SETTINGS_KEY = 'cbt_school_settings';
+
+function normalizeSchoolSettings(settings = {}) {
+    if (!settings || typeof settings !== 'object') return {};
+    return {
+        yayasan: settings.yayasan || '',
+        name: settings.name || '',
+        principal: settings.principal || '',
+        principalNip: settings.principalNip || '',
+        address: settings.address || '',
+        kota: settings.kota || '',
+        tahun: settings.tahun || '',
+        semester: settings.semester || 'GANJIL',
+        logo: settings.logo || '',
+        logoUrl: settings.logoUrl || '',
+        ...settings
+    };
+}
+
+function renderSchoolIdentity(settings) {
+    const safeSettings = normalizeSchoolSettings(settings || db?.schoolSettings || {});
+    if (!safeSettings.name) return;
+
+    const name = safeSettings.name;
+    let logo = safeSettings.logoUrl || safeSettings.logo || localStorage.getItem('cbt_school_logo') || 'logo.png';
+    if (logo && logo !== 'undefined' && logo !== 'null' && !logo.startsWith('data:') && !logo.startsWith('http') && logo !== 'logo.png') {
+        const base = getApiBaseUrl ? getApiBaseUrl() : '';
+        if (base) logo = base + (logo.startsWith('/') ? logo : '/' + logo);
     }
-    save();
-    closeModals();
-    showAdminSection('rombel');
-}
 
-function setAnswer(i) {
-    const q = examData.questions[examData.currentIdx];
-    if (q.type === 'multiple') {
-        let arr = examData.answers[examData.currentIdx] || [];
-        const idx = arr.indexOf(i);
-        if (idx === -1) arr.push(i);
-        else arr.splice(idx, 1);
-        examData.answers[examData.currentIdx] = arr;
-    } else {
-        examData.answers[examData.currentIdx] = i;
+    const currentTitle = document.title;
+    if (!currentTitle.includes(name.toUpperCase())) {
+        document.title = `CBT - ${name}`;
     }
-    saveStudentExamProgress();
-    showQuestion(examData.currentIdx);
+
+    const ids = ['school-name-display', 'raport-school-name', 'cert-school-name'];
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = name;
+    });
+
+    const loginSubtitle = document.querySelector('.cbt-subtitle');
+    const loginLogo = document.querySelector('.logo-glow');
+    if (loginSubtitle) loginSubtitle.innerText = name;
+    if (loginLogo) {
+        loginLogo.src = logo;
+        const favicon = document.querySelector('link[rel="icon"]');
+        const appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+        if (favicon) favicon.href = logo;
+        if (appleIcon) appleIcon.href = logo;
+    }
+
+    const adminSidebarTitle = document.getElementById('admin-sidebar-title');
+    const adminSidebarLogo = document.getElementById('admin-sidebar-logo');
+    const raportLogo = document.getElementById('raport-logo');
+    if (adminSidebarTitle) adminSidebarTitle.innerText = `ADMIN CBT ${name}`;
+    if (adminSidebarLogo) adminSidebarLogo.src = logo;
+    if (raportLogo) raportLogo.src = logo;
+
+    const teacherSidebarTitle = document.getElementById('teacher-sidebar-title');
+    const teacherSidebarLogo = document.getElementById('teacher-sidebar-logo');
+    if (teacherSidebarTitle) teacherSidebarTitle.innerText = `${name} - GURU`;
+    if (teacherSidebarLogo) teacherSidebarLogo.src = logo;
+
+    const studentSidebarTitle = document.getElementById('student-sidebar-title');
+    const studentSidebarLogo = document.getElementById('student-sidebar-logo');
+    const studentMeta = document.getElementById('student-meta-school');
+    if (studentSidebarTitle) studentSidebarTitle.innerText = name;
+    if (studentSidebarLogo) studentSidebarLogo.src = logo;
+    if (studentMeta) studentMeta.innerText = name;
 }
+window.renderSchoolIdentity = renderSchoolIdentity;
 
-function toggleAnswer(i) { setAnswer(i); }
-
-function setAnswerText(val) {
-    examData.answers[examData.currentIdx] = val;
-    saveStudentExamProgress();
-    updateQuestionStatus();
-    updateProgress();
-}
-
-function setAnswerTF(stmtIdx, boolVal) {
-    const idx = examData.currentIdx;
-    const ansArr = examData.answers[idx] || [];
-    ansArr[stmtIdx] = boolVal;
-    examData.answers[idx] = ansArr;
-    saveStudentExamProgress();
-    // re-render current question to update styling
-    showQuestion(idx);
-}
-
-function setMatchingAnswer(qIdx, aIdx) {
-    const idx = examData.currentIdx;
-    const ansArr = examData.answers[idx] || [];
-    ansArr[qIdx] = aIdx === "" ? null : parseInt(aIdx);
-    examData.answers[idx] = ansArr;
-    saveStudentExamProgress();
-    showQuestion(idx);
-}
-
-function navQ(dir) { showQuestion(examData.currentIdx + dir); }
-
-
-let statusShowAll = false; // show all questions when true
-
-const MAX_VISIBLE_STATUS = 8;
-
-function toggleStatusView() {
-    statusShowAll = !statusShowAll;
-    document.getElementById('toggle-status-btn').innerText = statusShowAll ? '(Tutup)' : '(Lihat semua)';
-    updateQuestionStatus();
-}
-
-function toggleDoubt() {
-    const idx = examData.currentIdx;
-    examData.ragu[idx] = !examData.ragu[idx];
-    saveStudentExamProgress();
-    updateQuestionStatus();
-    updateDoubtBtn();
-}
-
-function getTypeLabel(type) {
-    if (type === 'single') return 'Pilihan ganda';
-    if (type === 'multiple') return 'Pilihan ganda (Kompleks)';
-    if (type === 'text') return 'Uraian';
-    if (type === 'tf') return 'Benar / Salah';
-    if (type === 'matching') return 'Menjodohkan';
-    return type;
-}
-
-let currentZoomImageIndex = 0;
-
-function openImageZoom(qIdx, imgIdx) {
+async function fetchSchoolSettings() {
     try {
-        currentZoomQuestion = qIdx;
-        currentZoomImageIndex = imgIdx;
-        const q = examData.questions[qIdx];
-        if (!q) {
-            console.warn('Question not found at index:', qIdx);
-            return;
-        }
-        const images = getQuestionImageSources(q);
-
-        if (images.length > 0 && images[imgIdx]) {
-            const zoomModal = document.getElementById('image-zoom-modal');
-            const zoomImage = document.getElementById('zoom-image-display');
-            const counter = document.getElementById('zoom-image-counter');
-
-            if (!zoomModal || !zoomImage || !counter) {
-                console.error('Modal elements not found');
-                return;
+        const res = await fetch(getApiBaseUrl() + '/api/school-settings');
+        if (res.ok) {
+            const settings = await res.json();
+            const safeSettings = normalizeSchoolSettings(settings);
+            if (safeSettings.name) {
+                if (!db.schoolSettings) db.schoolSettings = {};
+                Object.assign(db.schoolSettings, safeSettings);
+                renderSchoolIdentity(safeSettings);
             }
-
-            zoomImage.src = images[imgIdx];
-            counter.textContent = `${imgIdx + 1}/${images.length}`;
-            zoomModal.classList.remove('hidden');
-            zoomModal.style.display = 'flex';
-            console.log('Zoom modal opened for image', imgIdx + 1, 'of', images.length);
-        } else {
-            console.warn('No images found for question or invalid image index');
         }
-    } catch (error) {
-        console.error('Error opening image zoom:', error);
+    } catch (e) {
+        console.warn('[fetchSchoolSettings] Failed:', e.message);
+        if (db.schoolSettings && db.schoolSettings.name) {
+            renderSchoolIdentity(db.schoolSettings);
+        }
     }
 }
+window.fetchSchoolSettings = fetchSchoolSettings;
 
-function closeImageZoom() {
-    try {
-        const zoomModal = document.getElementById('image-zoom-modal');
-        if (zoomModal) {
-            zoomModal.classList.add('hidden');
-            zoomModal.style.display = 'none';
-        }
-    } catch (error) {
-        console.error('Error closing image zoom:', error);
-    }
-}
+function loadSchoolSettings() {
+    let settings = {};
 
-function nextZoomImage() {
-    const q = examData.questions[currentZoomQuestion];
-    const images = getQuestionImageSources(q);
-    if (!images.length) return;
-    currentZoomImageIndex = (currentZoomImageIndex + 1) % images.length;
-    const zoomImage = document.getElementById('zoom-image-display');
-    const counter = document.getElementById('zoom-image-counter');
-    zoomImage.src = images[currentZoomImageIndex];
-    counter.textContent = `${currentZoomImageIndex + 1}/${images.length}`;
-}
-
-function previousZoomImage() {
-    const q = examData.questions[currentZoomQuestion];
-    const images = getQuestionImageSources(q);
-    if (!images.length) return;
-    currentZoomImageIndex = (currentZoomImageIndex - 1 + images.length) % images.length;
-    const zoomImage = document.getElementById('zoom-image-display');
-    const counter = document.getElementById('zoom-image-counter');
-    zoomImage.src = images[currentZoomImageIndex];
-    counter.textContent = `${currentZoomImageIndex + 1}/${images.length}`;
-}
-
-function getAiTypeCounts() {
-    const typeCounts = { single: 0, multiple: 0, text: 0, tf: 0, matching: 0 };
-    const oldJumlah = document.getElementById('ai-jumlah');
-    const oldType = document.getElementById('ai-type');
-
-    if (oldJumlah && oldType) {
-        const chosen = (oldType.value || 'single').trim();
-        typeCounts[chosen] = Number(oldJumlah.value) || 0;
+    if (db.schoolSettings && db.schoolSettings.name) {
+        settings = normalizeSchoolSettings(db.schoolSettings);
     } else {
-        typeCounts.single = Number(document.getElementById('ai-jml-pg')?.value) || 0;
-        typeCounts.multiple = Number(document.getElementById('ai-jml-pgk')?.value) || 0;
-        typeCounts.text = Number(document.getElementById('ai-jml-esai')?.value) || 0;
-        typeCounts.tf = Number(document.getElementById('ai-jml-bs')?.value) || 0;
-        typeCounts.matching = Number(document.getElementById('ai-jml-jodoh')?.value) || 0;
-    }
-
-    return typeCounts;
-}
-
-function getAiLevelCounts(totalQuestions) {
-    const levels = { mudah: 0, sedang: 0, hots: 0 };
-    const mudah = Number(document.getElementById('ai-lvl-mudah')?.value) || 0;
-    const sedang = Number(document.getElementById('ai-lvl-sedang')?.value) || 0;
-    const hotsInput = document.getElementById('ai-lvl-hots');
-
-    levels.mudah = mudah;
-    levels.sedang = sedang;
-    levels.hots = Math.max(0, totalQuestions - mudah - sedang);
-
-    if (hotsInput) {
-        hotsInput.value = String(levels.hots);
-    }
-
-    return levels;
-}
-
-function getAIErrorExplanation(errorMessage) {
-    if (!errorMessage) return '';
-    const normalized = String(errorMessage).toLowerCase();
-    if (normalized.includes('kuota habis') || normalized.includes('quota') || normalized.includes('balance') || normalized.includes('insufficient') || normalized.includes('402')) {
-        return 'Catatan: pesan ini menunjukkan bahwa API key sudah mencapai batas kuota/saldo. Silakan ganti atau tambahkan API key yang masih aktif.';
-    }
-    if (normalized.includes('rate limit') || normalized.includes('too many requests') || normalized.includes('service unavailable') || normalized.includes('server busy') || normalized.includes('503') || normalized.includes('sistem sibuk')) {
-        return 'Catatan: ini berarti layanan AI sedang sibuk atau terlalu banyak permintaan. Bukan kuota habis permanen; coba lagi beberapa menit kemudian.';
-    }
-    if (normalized.includes('tidak ditemukan atau kuota habis') || normalized.includes('tidak ditemukan atau kuota habis di semua sumber')) {
-        return 'Catatan: sistem tidak menemukan API key aktif saat ini. Periksa konfigurasi API key atau tambahkan key baru di pengaturan.';
-    }
-    return '';
-}
-
-let currentKisiKisiData = [];
-
-async function generateKisiKisiWithAi() {
-    const mapel = document.getElementById('kk-mapel').value;
-    const rombel = document.getElementById('kk-rombel').value;
-
-    // Filter questions to send
-    const questions = db.questions.filter(q => q.mapel === mapel && q.rombel === rombel);
-    if (questions.length === 0) {
-        alert('Tidak ada soal yang ditemukan untuk Mapel and Rombel ini!');
-        return;
-    }
-
-    const loading = document.getElementById('ai-loading');
-    loading.classList.remove('hidden');
-    loading.classList.add('flex');
-
-    try {
-        const response = await fetch(getApiBaseUrl() + '/api/generate-kisi-kisi', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ questions, mapel, rombel })
-        });
-
-        const result = await response.json();
-        if (result.ok) {
-            currentKisiKisiData = result.kisiKisi;
-            renderKisiKisiTable(currentKisiKisiData);
-            document.getElementById('kisi-kisi-setup').classList.add('hidden');
-            document.getElementById('kisi-kisi-result').classList.remove('hidden');
-            document.getElementById('kk-count').innerText = questions.length;
-        } else {
-            const explanation = getAIErrorExplanation(result.error);
-            alert('Error AI: ' + (result.error || 'Gagal generate kisi-kisi') + (explanation ? '\n\n' + explanation : ''));
+        try {
+            const raw = localStorage.getItem(SCHOOL_SETTINGS_KEY);
+            if (raw) settings = normalizeSchoolSettings(JSON.parse(raw));
+        } catch (e) {
+            console.warn('[loadSchoolSettings] Failed reading localStorage:', e.message);
         }
-    } catch (err) {
-        console.error('Kisi-kisi Generation Error:', err);
-        alert('Terjadi kesalahan saat memanggil AI: ' + err.message);
-    } finally {
-        loading.classList.add('hidden');
-        loading.classList.remove('flex');
+    }
+
+    const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.value = val || '';
+    };
+
+    setVal('school-yayasan', settings.yayasan);
+    setVal('school-name', settings.name);
+    setVal('school-principal', settings.principal);
+    setVal('school-principal-nip', settings.principalNip);
+    setVal('school-address', settings.address);
+    setVal('school-city', settings.kota);
+    setVal('school-tahun', settings.tahun);
+    setVal('school-semester', settings.semester || 'GANJIL');
+
+    let logoUrl = settings.logoUrl;
+    if (logoUrl === 'undefined' || logoUrl === 'null') logoUrl = '';
+
+    let savedLogo = logoUrl || settings.logo || localStorage.getItem('cbt_school_logo');
+    if (savedLogo && savedLogo !== 'undefined' && savedLogo !== 'null' && !savedLogo.startsWith('data:') && !savedLogo.startsWith('http') && savedLogo !== 'logo.png') {
+        const base = getApiBaseUrl ? getApiBaseUrl() : '';
+        if (base) savedLogo = base + (savedLogo.startsWith('/') ? savedLogo : '/' + savedLogo);
+    }
+
+    const logoPreview = document.getElementById('school-logo-preview');
+    const logoPlaceholder = document.getElementById('school-logo-placeholder');
+    if (savedLogo && logoPreview) {
+        logoPreview.src = savedLogo;
+        logoPreview.style.display = 'block';
+        if (logoPlaceholder) logoPlaceholder.style.display = 'none';
     }
 }
+window.loadSchoolSettings = loadSchoolSettings;
 
-function showStaticModeWarning() {
-    const warning = document.createElement('div');
-    warning.id = 'static-mode-warning';
-    warning.className = 'fixed bottom-4 right-4 bg-amber-600 text-white px-4 py-3 rounded-2xl shadow-2xl z-[9999] flex items-center gap-3 animate-bounce cursor-pointer';
-    warning.innerHTML = `
-                <div class="bg-white/20 w-8 h-8 rounded-full flex items-center justify-center"><i class="fas fa-exclamation-triangle"></i></div>
-                <div>
-                    <p class="text-[10px] font-black uppercase tracking-widest opacity-80">Static Mode</p>
-                    <p class="text-xs font-bold leading-tight">Berjalan tanpa server. Perubahan tidak akan tersimpan ke server!</p>
-                </div>
-                <button class="ml-2 opacity-50 hover:opacity-100" onclick="this.parentElement.remove()"><i class="fas fa-times"></i></button>
-            `;
-    document.body.appendChild(warning);
-}
+function saveSchoolSettings() {
+    const storedLogo = localStorage.getItem('cbt_school_logo') || '';
+    let storedLogoUrl = localStorage.getItem('cbt_school_logo_url') || '';
+    if (storedLogoUrl === 'undefined' || storedLogoUrl === 'null') storedLogoUrl = '';
 
-let apiKeysStatsPollingInterval = null;
+    const previewEl = document.getElementById('school-logo-preview');
+    const previewSrc = previewEl && previewEl.src ? previewEl.src : '';
+    const logoBase64 = previewSrc.startsWith('data:') ? previewSrc : storedLogo;
 
-const STATS_POLLING_INTERVAL = 3000; // 3 detik
+    const settings = {
+        yayasan: document.getElementById('school-yayasan')?.value.trim() || '',
+        name: document.getElementById('school-name')?.value.trim() || '',
+        principal: document.getElementById('school-principal')?.value.trim() || '',
+        principalNip: document.getElementById('school-principal-nip')?.value.trim() || '',
+        address: document.getElementById('school-address')?.value.trim() || '',
+        kota: document.getElementById('school-city')?.value.trim() || '',
+        tahun: document.getElementById('school-tahun')?.value.trim() || '',
+        semester: document.getElementById('school-semester')?.value || 'GANJIL',
+        logo: logoBase64,
+        logoUrl: storedLogoUrl
+    };
 
-
-function addTeacherAPIKeyForm() {
-    const input = document.getElementById('new-api-key-input');
-    if (!input) {
-        showToast('Form tidak ditemukan', 'error');
+    if (!settings.name) {
+        if (typeof showToast === 'function') showToast('Nama sekolah tidak boleh kosong!', 'error');
         return;
     }
 
-    const apiKey = input.value.trim();
-    if (!apiKey) {
-        showToast('Masukkan API Key terlebih dahulu', 'error');
-        return;
+    localStorage.setItem(SCHOOL_SETTINGS_KEY, JSON.stringify(settings));
+    if (settings.logo && settings.logo.startsWith('data:')) {
+        localStorage.setItem('cbt_school_logo', settings.logo);
     }
 
-    if (!currentSiswa || currentSiswa.role !== 'teacher') {
-        alert('Hanya guru yang dapat menambahkan API Key');
-        return;
-    }
+    if (!db.schoolSettings) db.schoolSettings = {};
+    Object.assign(db.schoolSettings, settings);
 
-    // Show loading state
-    const btn = (window.event && window.event.target) ? window.event.target : null;
-    const originalText = btn ? btn.innerHTML : '';
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Memproses...';
-    }
-
-    // Send to server for auto-setup to Vercel
-    fetch(getApiBaseUrl() + '/api/teacher/add-api-key', {
+    fetch(getApiBaseUrl() + '/api/school-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            teacherId: currentSiswa.id,
-            apiKey: apiKey
-        })
-    })
-        .then(res => res.json())
-        .then(data => {
-            if (!data.ok) {
-                showToast(data.error || 'Gagal menambahkan API Key', 'error');
-                return;
-            }
-            if (typeof updateApiKeysWarningBanner === 'function') {
-                updateApiKeysWarningBanner('', '');
-            }
+        body: JSON.stringify(settings)
+    }).catch(e => console.warn('[SchoolSettings] Error:', e.message));
 
-            // Update local state
-            if (!Array.isArray(currentSiswa.apiKeys)) {
-                currentSiswa.apiKeys = [];
-            }
-
-            const trimmedKey = apiKey.trim();
-            const alreadyExists = currentSiswa.apiKeys.some(entry => {
-                if (typeof entry === 'string') return entry.trim() === trimmedKey;
-                if (typeof entry === 'object' && entry.key) return entry.key.trim() === trimmedKey;
-                return false;
-            });
-
-            if (!alreadyExists) {
-                currentSiswa.apiKeys.push({
-                    key: trimmedKey,
-                    status: 'active',
-                    addedAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                    note: ''
-                });
-            }
-
-            save();
-            input.value = '';
-            input.type = 'password';
-            if (typeof renderTeacherAPIKeys === 'function') {
-                renderTeacherAPIKeys();
-            }
-
-            // Update real-time stats immediately
-            updateRealtimeStats();
-
-            // Show success with Vercel status
-            const message = data.vercelStatus
-                ? `✅ API Key ditambahkan! ${data.vercelStatus}`
-                : '✅ API Key berhasil ditambahkan!';
-            showToast(message, 'success');
-
-        })
-        .catch(err => {
-            console.error('API Key Error:', err);
-            showToast('Terjadi kesalahan: ' + err.message, 'error');
-        })
-        .finally(() => {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-        });
+    renderSchoolIdentity(settings);
+    if (typeof showToast === 'function') showToast('Identitas sekolah berhasil disimpan!', 'success');
 }
+window.saveSchoolSettings = saveSchoolSettings;
 
-function removeTeacherAPIKey(index) {
-    if (!confirm('Apakah Anda yakin ingin menghapus API Key ini?')) {
-        return;
-    }
-
-    if (!currentSiswa || currentSiswa.role !== 'teacher') {
-        alert('Hanya guru yang dapat menghapus API Key');
-        return;
-    }
-
-    fetch(getApiBaseUrl() + '/api/teacher/remove-api-key', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            teacherId: currentSiswa.id,
-            keyIndex: index
-        })
-    })
-        .then(res => res.json())
-        .then(data => {
-            if (!data.ok) {
-                showToast(data.error || 'Gagal menghapus API Key', 'error');
-                return;
-            }
-
-            // Remove from local state
-            if (Array.isArray(currentSiswa.apiKeys)) {
-                currentSiswa.apiKeys.splice(index, 1);
-            }
-
-            save();
-
-            if (typeof renderTeacherAPIKeys === 'function') {
-                renderTeacherAPIKeys();
-            }
-
-            // Update real-time stats immediately
-            updateRealtimeStats();
-
-            showToast('✅ API Key berhasil dihapus!', 'success');
-        })
-        .catch(err => {
-            console.error('Remove API Key Error:', err);
-            showToast('Terjadi kesalahan: ' + err.message, 'error');
-        });
-}
-
-function detectProviderFromKey(key) {
-    if (!key) return 'Unknown';
-    if (key.startsWith('AIzaSy')) return 'Google Gemini';
-    if (key.startsWith('sk-')) return 'OpenAI (ChatGPT)';
-    if (key.startsWith('sk-or-v1-') || key.startsWith('sk-or-')) return 'OpenRouter';
-    if (key.startsWith('gsk_')) return 'Groq';
-    if (key.includes('deepseek')) return 'DeepSeek';
-    return 'Other Provider';
-}
-
-function toggleNewKeyVisibility() {
-    const input = document.getElementById('new-api-key-input');
-    const icon = document.getElementById('toggle-new-key-icon');
-    if (!input) return;
-
-    if (input.type === 'password') {
-        input.type = 'text';
-        if (icon) icon.classList.replace('fa-eye', 'fa-eye-slash');
-    } else {
-        input.type = 'password';
-        if (icon) icon.classList.replace('fa-eye-slash', 'fa-eye');
-    }
-}
-
-async function renderTeacherAPIKeys() {
-    const listContainer = document.getElementById('api-keys-list');
-    if (!listContainer) return;
-
-    console.log('renderTeacherAPIKeys called');
-
-    // Auto-sync if keys are missing or it's been a while (optional enhancement)
-    if (!currentSiswa || !Array.isArray(currentSiswa.apiKeys)) {
-        listContainer.innerHTML = `
-            <div class="text-center py-12 text-slate-400">
-                <i class="fas fa-circle-notch fa-spin text-4xl mb-4 opacity-20"></i>
-                <p class="font-bold">Memuat daftar API Key...</p>
-            </div>`;
-        await syncTeacherAPIKeysFromServer();
-    }
-
-    if (!currentSiswa || !Array.isArray(currentSiswa.apiKeys)) {
-        listContainer.innerHTML = `
-            <div class="text-center py-12 text-slate-400">
-                <i class="fas fa-key text-4xl mb-4 opacity-20"></i>
-                <p class="font-bold">Belum ada API Key pribadi</p>
-                <p class="text-xs">Gunakan form di atas untuk menambahkan key Gemini atau ChatGPT.</p>
-            </div>`;
-        updateTeacherApiKeysStats([]);
-        return;
-    }
-
-    const filter = document.getElementById('api-keys-filter')?.value || 'all';
-    let keys = currentSiswa.apiKeys;
-
-    updateTeacherApiKeysStats(currentSiswa.apiKeys);
-
-    if (filter === 'active') {
-        keys = keys.filter(k => (typeof k === 'object' ? k.status : 'active') !== 'exhausted');
-    } else if (filter === 'exhausted') {
-        keys = keys.filter(k => (typeof k === 'object' ? k.status : 'active') === 'exhausted');
-    }
-
-    if (keys.length === 0) {
-        listContainer.innerHTML = `
-            <div class="text-center py-12 text-slate-400">
-                <i class="fas fa-filter text-4xl mb-4 opacity-20"></i>
-                <p class="font-bold">Tidak ada key yang sesuai filter</p>
-            </div>`;
-        return;
-    }
-
-    listContainer.innerHTML = keys.map((key, index) => {
-        const fullKey = typeof key === 'object' ? (key.key || '') : key;
-        const status = typeof key === 'object' ? (key.status || 'active') : 'active';
-        const displayKey = fullKey.length > 20 ? fullKey.substring(0, 10) + '...' + fullKey.substring(fullKey.length - 8) : fullKey;
-        const provider = detectProviderFromKey(fullKey);
-        const isExhausted = status === 'exhausted';
-
-        return `
-            <div class="bg-white border ${isExhausted ? 'border-red-100 bg-red-50/10' : 'border-slate-100'} rounded-2xl p-4 flex items-center justify-between group transition-all hover:shadow-md">
-                <div class="flex items-center gap-4">
-                    <div class="w-10 h-10 ${isExhausted ? 'bg-red-100 text-red-600' : 'bg-sky-100 text-sky-600'} rounded-xl flex items-center justify-center text-lg">
-                        <i class="fas ${provider.includes('Gemini') ? 'fa-gem' : (provider.includes('ChatGPT') ? 'fa-robot' : 'fa-key')}"></i>
-                    </div>
-                    <div>
-                        <div class="flex items-center gap-2 mb-1">
-                            <span class="text-xs font-black text-slate-800">${provider}</span>
-                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${isExhausted ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'} uppercase tracking-tight">
-                                ${isExhausted ? 'Habis' : 'Aktif'}
-                            </span>
-                        </div>
-                        <p class="text-xs font-mono text-slate-500">${displayKey}</p>
-                    </div>
-                </div>
-                <div class="flex items-center gap-2">
-                    <button onclick="removeTeacherAPIKey(${index})" class="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Hapus Key">
-                        <i class="fas fa-trash-alt text-sm"></i>
-                    </button>
-                </div>
-            </div>
-        `;
-    }).join('');
-}
-
-async function renderGlobalAPIKeys() {
-    const container = document.getElementById('global-api-keys-list');
-    if (!container) return;
-    console.log('renderGlobalAPIKeys called');
-    // Minimal implementation - if needed, fetch and render global API keys
-    try {
-        const response = await fetch(getApiBaseUrl() + '/api/teacher/global-api-keys');
-        const result = await response.json();
-        console.log('Global API keys loaded:', result);
-        if (result.ok && result.globalKeys && result.globalKeys.length > 0) {
-            updateGlobalApiKeysStats(result.globalKeys);
-        }
-    } catch (err) {
-        console.error('Error loading global API keys:', err);
-    }
-}
-
-function toggleGlobalAPIKeysList() {
-    const list = document.getElementById('global-api-keys-list');
-    const icon = document.getElementById('global-api-keys-toggle-icon');
-
-    if (!list || !icon) return;
-
-    const isHidden = list.classList.contains('hidden');
-
-    if (isHidden) {
-        list.classList.remove('hidden');
-        icon.style.transform = 'rotate(180deg)';
-        // Load the list if it's empty (first time opening)
-        if (list.children.length === 0 || list.querySelector('.fa-loader')) {
-            renderGlobalAPIKeys();
-        }
-    } else {
-        list.classList.add('hidden');
-        icon.style.transform = 'rotate(0deg)';
-    }
-}
-
-
-// === UNCLAIMED TOP LEVEL LINES & HEADERS ===
-// ─── Quill Rich Text Editor Helpers ────────────────────────────────────────
+// Quill Rich Text Editor Helpers
 window._quillQuestion = null;
 window._quillAnswer = null;
 window._quillQuizz = null;
-// ─────────────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // Global Anti-Cheat State
 
-
-
-
-
 // Anti-Cheat Event Listeners
-
 
 // Anti-Copy & Select
 
 // Anti-Screenshot (PrintScreen)
 
 // Fullscreen and Wake Lock Functions
-
-
-
-
-
 
 // Enhanced fullscreen change detection
 
@@ -2138,16 +1736,12 @@ window._quillQuizz = null;
 
 // read/write db via IDB, fallback to localStorage if IDB fails
 
-
 // Track which large collections have been explicitly loaded from the server
-
-
 
 /**
  * Ensures that a specific collection (questions, students, results) is loaded from the server.
  * Uses lazy loading to avoid pulling thousands of rows into memory unless needed.
  */
-
 
 // helper used during initialization to merge results from two sources
 
@@ -2158,11 +1752,6 @@ window._quillQuizz = null;
 // --- AUTH ---
 
 // --- CORE FUNCTIONS ---
-
-
-
-
-
 
 
 
