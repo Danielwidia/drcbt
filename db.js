@@ -321,7 +321,11 @@ async function upsertResult(r) {
     // Use the JSON payload as a fallback match key because older records may have
     // slightly different field formatting or the browser may send a deleted record
     // without an exact row-level date match.
-    let { data: rows, error: selectError } = await sb.from('cbt_results').select('id, data, student_id, mapel, rombel, date');
+    let query = sb.from('cbt_results').select('id, data, student_id, mapel, rombel, date');
+    if (record.student_id) {
+        query = query.eq('student_id', record.student_id);
+    }
+    let { data: rows, error: selectError } = await query;
     if (selectError) throw new Error('upsertResult select error: ' + selectError.message);
 
     const existing = (rows || []).find(row => {
@@ -359,7 +363,11 @@ async function deleteResult(studentId, mapel, rombel, date) {
     const rombelKey = String(rombel || '').trim();
     const dateKey = date ? String(date).trim() : '';
 
-    const { data: rows, error: selectError } = await sb.from('cbt_results').select('id, data, student_id, mapel, rombel, date');
+    let query = sb.from('cbt_results').select('id, data, student_id, mapel, rombel, date');
+    if (studentKey) {
+        query = query.eq('student_id', studentKey);
+    }
+    const { data: rows, error: selectError } = await query;
     if (selectError) throw new Error('deleteResult select error: ' + selectError.message);
     const toDelete = (rows || []).filter(row => {
         const rowData = dec(row.data) || {};
@@ -385,21 +393,114 @@ async function deleteResult(studentId, mapel, rombel, date) {
 }
 
 async function setAllResults(resultsArr) {
-    const toDelete = (resultsArr || []).filter(r => r && r.deleted === true);
-    const active = (resultsArr || []).filter(r => !(r && r.deleted === true));
+    if (!resultsArr || resultsArr.length === 0) return;
+    const sb = getSupabase();
+    
+    // Fetch all existing rows ONCE for the bulk operation
+    // For large operations, this is faster than querying per-record
+    let { data: rows, error: selectError } = await sb.from('cbt_results').select('id, data, student_id, mapel, rombel, date');
+    if (selectError) throw new Error('setAllResults select error: ' + selectError.message);
+    
+    rows = rows || [];
+    const updates = [];
+    const inserts = [];
+    const deletes = [];
+
+    const toDelete = resultsArr.filter(r => r && r.deleted === true);
+    const active = resultsArr.filter(r => !(r && r.deleted === true));
+
+    // Handle deletes
     for (const r of toDelete) {
-        await deleteResult(r.studentId || '', r.mapel || '', r.rombel || '', r.date || '');
+        const studentKey = String(r.studentId || '').trim();
+        const mapelKey = String(r.mapel || '').trim();
+        const rombelKey = String(r.rombel || '').trim();
+        const dateKey = r.date ? String(r.date).trim() : '';
+
+        const matchingIds = rows.filter(row => {
+            const rowData = dec(row.data) || {};
+            const rowStudent = String(row.student_id ?? rowData.studentId ?? '').trim();
+            const rowMapel = String(row.mapel ?? rowData.mapel ?? '').trim();
+            const rowRombel = String(row.rombel ?? rowData.rombel ?? '').trim();
+            const rowDate = String(row.date ?? rowData.date ?? '').trim();
+
+            if (studentKey && rowStudent && studentKey !== rowStudent) return false;
+            if (mapelKey && rowMapel && mapelKey !== rowMapel) return false;
+            if (rombelKey && rowRombel && rombelKey !== rowRombel) return false;
+            if (dateKey && rowDate && dateKey !== rowDate) return false;
+
+            return Boolean((studentKey && rowStudent) || (mapelKey && rowMapel) || (rombelKey && rowRombel) || (dateKey && rowDate));
+        }).map(r => r.id);
+
+        deletes.push(...matchingIds.filter(id => id));
     }
+
+    if (deletes.length > 0) {
+        const uniqueDeletes = [...new Set(deletes)];
+        await sb.from('cbt_results').delete().in('id', uniqueDeletes);
+        // Remove deleted from local rows array to avoid matching them in the insert/update phase
+        rows = rows.filter(r => !uniqueDeletes.includes(r.id));
+    }
+
+    // Handle upserts
     for (const r of active) {
-        await upsertResult(r);
+        const scoreVal = typeof r.score === 'string' ? parseFloat(r.score) : (r.score || 0);
+        const dateVal = r.date || new Date().toISOString();
+        const record = {
+            student_id: r.studentId || '',
+            mapel: r.mapel || '',
+            rombel: r.rombel || '',
+            date: dateVal,
+            score: scoreVal,
+            data: enc(r),
+            created_at: dateVal
+        };
+
+        const existing = rows.find(row => {
+            const rowData = dec(row.data) || {};
+            const rowStudent = String(row.student_id ?? rowData.studentId ?? '').trim();
+            const rowMapel = String(row.mapel ?? rowData.mapel ?? '').trim();
+            const rowRombel = String(row.rombel ?? rowData.rombel ?? '').trim();
+            const rowDate = String(row.date ?? rowData.date ?? '').trim();
+
+            const targetStudent = String(record.student_id || rowData.studentId || '').trim();
+            const targetMapel = String(record.mapel || rowData.mapel || '').trim();
+            const targetRombel = String(record.rombel || rowData.rombel || '').trim();
+            const targetDate = String(record.date || rowData.date || '').trim();
+
+            if (targetStudent && rowStudent && targetStudent !== rowStudent) return false;
+            if (targetMapel && rowMapel && targetMapel !== rowMapel) return false;
+            if (targetRombel && rowRombel && targetRombel !== rowRombel) return false;
+            if (targetDate && rowDate && targetDate !== rowDate) return false;
+            return Boolean(targetStudent || targetMapel || targetRombel || targetDate);
+        });
+
+        if (existing) {
+            record.id = existing.id;
+            updates.push(record);
+        } else {
+            inserts.push(record);
+        }
+    }
+
+    if (updates.length > 0) {
+        // Break into chunks of 100 to avoid request too large errors
+        for (let i = 0; i < updates.length; i += 100) {
+            const chunk = updates.slice(i, i + 100);
+            const { error } = await sb.from('cbt_results').upsert(chunk);
+            if (error) throw new Error('setAllResults bulk update error: ' + error.message);
+        }
+    }
+    if (inserts.length > 0) {
+        for (let i = 0; i < inserts.length; i += 100) {
+            const chunk = inserts.slice(i, i + 100);
+            const { error } = await sb.from('cbt_results').insert(chunk);
+            if (error) throw new Error('setAllResults bulk insert error: ' + error.message);
+        }
     }
 }
 
 async function mergeResults(inc = []) {
-    for (const r of inc) {
-        if (r.deleted) await deleteResult(r.studentId || '', r.mapel || '', r.rombel || '', r.date || '');
-        else await upsertResult(r);
-    }
+    await setAllResults(inc);
 }
 
 // Helper: determine whether a decoded result object is valid (not corrupted)
