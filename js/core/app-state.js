@@ -639,6 +639,19 @@ async function sendResult(result) {
 }
 
 async function save(options = {}) {
+    // Admin mode is LOCAL-ONLY by default. All admin edits are kept in the browser
+    // until the admin explicitly clicks the sync button, which calls save({ forceServerSave: true }).
+    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode && !options.forceServerSave) {
+        console.log('[SAVE] Admin mode active: persisting locally only, waiting for manual sync.');
+        try {
+            await saveLocalDb();
+            updateStats();
+        } catch (err) {
+            console.warn('LocalStorage save failed:', err.message || err);
+        }
+        return;
+    }
+
     // Students should not overwrite the entire DB structure via /api/db 
     // as they may have stale caches that erase admin settings.
     // Their results are handled separately via sendResult().
@@ -2521,7 +2534,7 @@ async function batchAiCorrectEssay(resultIdx) {
     try {
         await save();
     } catch (e) {
-        console.error('[batchAiCorrect] Save error:', e.message);
+        console.error('Error saving result:', e.message);
     }
 
     overlay.remove();
