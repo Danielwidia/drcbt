@@ -638,6 +638,7 @@ function logout() {
 }
 window.logout = logout;
 
+let appBootstrapped = false;
 window.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('login-btn');
     if (btn) btn.addEventListener('click', handleLogin);
@@ -645,4 +646,31 @@ window.addEventListener('DOMContentLoaded', () => {
         const el = document.getElementById(id);
         if (el) el.addEventListener('keypress', e => { if (e.key === 'Enter') handleLogin(); });
     });
+});
+
+window.addEventListener('load', async () => {
+    if (appBootstrapped) return;
+    appBootstrapped = true;
+
+    const overlay = document.getElementById('loading-overlay');
+    setTimeout(() => {
+        if (overlay && !overlay.classList.contains('hidden')) {
+            overlay.classList.add('hidden');
+            overlay.classList.remove('flex');
+        }
+    }, 2000);
+
+    try {
+        await init();
+        if (overlay) {
+            overlay.classList.add('hidden');
+            overlay.classList.remove('flex');
+        }
+    } catch (error) {
+        console.error('Initialization error:', error);
+        if (overlay) {
+            overlay.classList.add('hidden');
+            overlay.classList.remove('flex');
+        }
+    }
 });
