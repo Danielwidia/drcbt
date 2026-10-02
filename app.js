@@ -1,7 +1,7 @@
 /**
  * DR CBT - Combined Application Bundle
  * Generated from modular files in js/
- * Last Built: 2026-10-01T13:56:47.618Z
+ * Last Built: 2026-10-02T15:49:42.645Z
  */
 
 
@@ -49,6 +49,24 @@ function reloadPage() {
         location.reload();
     }, 500);
 }
+
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 7000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } catch (error) {
+        if (error && error.name === 'AbortError') {
+            throw new Error(`Request timeout after ${timeoutMs}ms: ${url}`);
+        }
+        throw error;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+window.fetchJsonWithTimeout = fetchJsonWithTimeout;
 
 const DB_KEY = "EXAM_DORKAS_DATABASE_OFFICIAL";
 
@@ -172,14 +190,14 @@ async function ensureDataLoaded(type, force = false) {
     try {
         let res;
         if (type === 'questions') {
-            res = await fetch(getApiBaseUrl() + '/api/questions?limit=-1');
+            res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/questions?limit=-1', {}, 5000);
             if (res.ok) {
                 const data = await res.json();
                 db.questions = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
                 _hasLoadedFlags.questions = true;
             }
         } else if (type === 'students') {
-            res = await fetch(getApiBaseUrl() + '/api/students');
+            res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/students', {}, 5000);
             if (res.ok) {
                 const data = await res.json();
                 if (Array.isArray(data) && data.length > 0) {
@@ -198,7 +216,7 @@ async function ensureDataLoaded(type, force = false) {
                 _hasLoadedFlags.students = true;
             }
         } else if (type === 'results') {
-            res = await fetch(getApiBaseUrl() + '/api/results?limit=-1');
+            res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/results?limit=-1', {}, 5000);
             if (res.ok) {
                 const data = await res.json();
                 db.results = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
@@ -327,6 +345,126 @@ window.addEventListener('beforeunload', () => {
     }
 });
 
+const SCHOOL_SETTINGS_KEY = 'cbt_school_settings';
+
+function normalizeSchoolSettings(settings = {}) {
+    if (!settings || typeof settings !== 'object') return {};
+    return {
+        yayasan: settings.yayasan || '',
+        name: settings.name || '',
+        principal: settings.principal || '',
+        principalNip: settings.principalNip || '',
+        address: settings.address || '',
+        kota: settings.kota || '',
+        tahun: settings.tahun || '',
+        semester: settings.semester || 'GANJIL',
+        logo: settings.logo || '',
+        logoUrl: settings.logoUrl || '',
+        ...settings
+    };
+}
+
+function renderSchoolIdentity(settings) {
+    const safeSettings = normalizeSchoolSettings(settings || db?.schoolSettings || {});
+    if (!safeSettings.name) return;
+
+    const name = safeSettings.name;
+    let logo = safeSettings.logoUrl || safeSettings.logo || localStorage.getItem('cbt_school_logo') || 'logo.png';
+    if (logo && logo !== 'undefined' && logo !== 'null' && !logo.startsWith('data:') && !logo.startsWith('http') && logo !== 'logo.png') {
+        const base = typeof getApiBaseUrl === 'function' ? getApiBaseUrl() : '';
+        if (base) logo = base + (logo.startsWith('/') ? logo : '/' + logo);
+    }
+
+    const currentTitle = document.title;
+    if (!currentTitle.includes(name.toUpperCase())) {
+        document.title = `CBT - ${name}`;
+    }
+
+    const ids = ['school-name-display', 'raport-school-name', 'cert-school-name'];
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = name;
+    });
+
+    const loginSubtitle = document.querySelector('.cbt-subtitle');
+    const loginLogo = document.querySelector('.logo-glow');
+    if (loginSubtitle) loginSubtitle.innerText = name;
+    if (loginLogo) {
+        loginLogo.src = logo;
+        const favicon = document.querySelector('link[rel="icon"]');
+        const appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+        if (favicon) favicon.href = logo;
+        if (appleIcon) appleIcon.href = logo;
+    }
+
+    const adminSidebarTitle = document.getElementById('admin-sidebar-title');
+    const adminSidebarLogo = document.getElementById('admin-sidebar-logo');
+    const raportLogo = document.getElementById('raport-logo');
+    if (adminSidebarTitle) adminSidebarTitle.innerText = `ADMIN CBT ${name}`;
+    if (adminSidebarLogo) adminSidebarLogo.src = logo;
+    if (raportLogo) raportLogo.src = logo;
+
+    const teacherSidebarTitle = document.getElementById('teacher-sidebar-title');
+    const teacherSidebarLogo = document.getElementById('teacher-sidebar-logo');
+    if (teacherSidebarTitle) teacherSidebarTitle.innerText = `${name} - GURU`;
+    if (teacherSidebarLogo) teacherSidebarLogo.src = logo;
+
+    const studentSidebarTitle = document.getElementById('student-sidebar-title');
+    const studentSidebarLogo = document.getElementById('student-sidebar-logo');
+    const studentMeta = document.getElementById('student-meta-school');
+    if (studentSidebarTitle) studentSidebarTitle.innerText = name;
+    if (studentSidebarLogo) studentSidebarLogo.src = logo;
+    if (studentMeta) studentMeta.innerText = name;
+}
+window.renderSchoolIdentity = renderSchoolIdentity;
+
+async function fetchSchoolSettings() {
+    try {
+        const res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/school-settings', {}, 3000);
+        if (res.ok) {
+            const settings = await res.json();
+            const safeSettings = normalizeSchoolSettings(settings);
+            if (safeSettings.name) {
+                if (!db.schoolSettings) db.schoolSettings = {};
+                Object.assign(db.schoolSettings, safeSettings);
+                renderSchoolIdentity(safeSettings);
+            }
+        }
+    } catch (e) {
+        console.warn('[fetchSchoolSettings] Failed:', e.message);
+        if (db.schoolSettings && db.schoolSettings.name) {
+            renderSchoolIdentity(db.schoolSettings);
+        }
+    }
+}
+window.fetchSchoolSettings = fetchSchoolSettings;
+
+function hideLoadingOverlay() {
+    const overlay = document.getElementById('loading-overlay');
+    if (overlay) {
+        overlay.classList.add('hidden');
+        overlay.classList.remove('flex');
+    }
+}
+window.hideLoadingOverlay = hideLoadingOverlay;
+
+function showStaticModeWarning() {
+    const warning = document.createElement('div');
+    warning.id = 'static-mode-warning';
+    warning.className = 'fixed bottom-4 right-4 bg-amber-600 text-white px-4 py-3 rounded-2xl shadow-2xl z-[9999] flex items-center gap-3 animate-bounce cursor-pointer';
+    warning.innerHTML = `
+        <div class="bg-white/20 w-8 h-8 rounded-full flex items-center justify-center"><i class="fas fa-exclamation-triangle"></i></div>
+        <div>
+            <p class="text-[10px] font-black uppercase tracking-widest opacity-80">Static Mode</p>
+            <p class="text-xs font-bold leading-tight">Berjalan tanpa server. Perubahan tidak akan tersimpan ke server!</p>
+        </div>
+        <button class="ml-2 opacity-50 hover:opacity-100" onclick="this.parentElement.remove()"><i class="fas fa-times"></i></button>
+    `;
+    document.body.appendChild(warning);
+}
+
+window.showStaticModeWarning = showStaticModeWarning;
+
 let currentConfigType = "";
 
 let currentDetailPackage = null;
@@ -337,212 +475,230 @@ let currentSortOrder = 'asc';
 
 
 async function init() {
-    const loginBtn = document.getElementById('login-btn');
-    const loginBtnText = loginBtn ? loginBtn.innerHTML : '';
-    if (loginBtn) {
-        loginBtn.disabled = true;
-        loginBtn.style.opacity = '0.7';
-        loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading Data...';
-    }
-
-    // Move migrateRombels() to run AFTER database is actually loaded.
-    // SYNC: Fix any data consistency issues in results
-    if (Array.isArray(db.results)) {
-        db.results.forEach((result, idx) => {
-            // Ensure answers and questions arrays match in length
-            if (Array.isArray(result.questions) && Array.isArray(result.answers)) {
-                const qLen = result.questions.length;
-                const aLen = result.answers.length;
-                if (aLen < qLen) {
-                    console.log(`Result ${idx}: Padding answers from ${aLen} to ${qLen}`);
-                    while (result.answers.length < qLen) {
-                        result.answers.push(null);
-                    }
-                }
-                // Validate each question has required fields
-                result.questions.forEach((q, i) => {
-                    if (!q || typeof q !== 'object') {
-                        console.warn(`Result ${idx}, Question ${i}: Invalid structure`);
-                    }
-                });
-            }
-        });
-    }
-
-    // First, check if there's a saved session
-    let savedSession = null;
     try {
-        savedSession = localStorage.getItem(SESSION_KEY);
-    } catch (e) {
-        console.warn('localStorage not available for session check:', e.message);
-    }
-    if (savedSession) {
+        const loginBtn = document.getElementById('login-btn');
+        const loginBtnText = loginBtn ? loginBtn.innerHTML : '';
+        if (loginBtn) {
+            loginBtn.disabled = true;
+            loginBtn.style.opacity = '0.7';
+            loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading Data...';
+        }
+
+        // Move migrateRombels() to run AFTER database is actually loaded.
+        // SYNC: Fix any data consistency issues in results
+        if (Array.isArray(db.results)) {
+            db.results.forEach((result, idx) => {
+                // Ensure answers and questions arrays match in length
+                if (Array.isArray(result.questions) && Array.isArray(result.answers)) {
+                    const qLen = result.questions.length;
+                    const aLen = result.answers.length;
+                    if (aLen < qLen) {
+                        console.log(`Result ${idx}: Padding answers from ${aLen} to ${qLen}`);
+                        while (result.answers.length < qLen) {
+                            result.answers.push(null);
+                        }
+                    }
+                    // Validate each question has required fields
+                    result.questions.forEach((q, i) => {
+                        if (!q || typeof q !== 'object') {
+                            console.warn(`Result ${idx}, Question ${i}: Invalid structure`);
+                        }
+                    });
+                }
+            });
+        }
+
+        // First, check if there's a saved session
+        let savedSession = null;
         try {
-            const session = JSON.parse(savedSession);
-            currentSiswa = session.user;
+            savedSession = localStorage.getItem(SESSION_KEY);
         } catch (e) {
-            console.warn('Invalid session format');
+            console.warn('localStorage not available for session check:', e.message);
         }
-    }
-
-    // Then fetch DB
-    try {
-        const parsed = await loadLocalDb();
-        if (parsed) db = normalizeDb(parsed);
-
-        // Fetch School Identity First for public branding
-        await fetchSchoolSettings();
-
-        let res = await fetch(getApiBaseUrl() + '/api/db');
-        if (!res.ok && (res.status === 404 || res.status === 0)) {
-            res = await fetch('database.json');
-            window.isStaticMode = true;
-            showStaticModeWarning();
-        }
-
-        if (res.ok) {
-            const serverDb = await res.json();
-            if (serverDb) {
-                // Merge metadata from server into local state without erasing 
-                // large collections that weren't sent (lazy-loaded).
-                db = normalizeDb(serverDb, db);
-                if (db.schoolSettings && db.schoolSettings.name) {
-                    renderSchoolIdentity(db.schoolSettings);
-                }
-                console.log('Database synced with server (Metadata load).');
+        if (savedSession) {
+            try {
+                const session = JSON.parse(savedSession);
+                currentSiswa = session.user;
+            } catch (e) {
+                console.warn('Invalid session format');
             }
         }
-    } catch (err) {
-        console.error('Initialization error:', err);
-    }
 
-    // NOW run migration on the final loaded data
-    migrateRombels();
-    migrateQuestionTypes();
+        // Then fetch DB
+        try {
+            const parsed = await loadLocalDb();
+            if (parsed) db = normalizeDb(parsed);
 
-    // Re-enable login
-    if (loginBtn) {
-        loginBtn.disabled = false;
-        loginBtn.style.opacity = '1';
-        loginBtn.innerHTML = loginBtnText;
-    }
+            // Fetch School Identity First for public branding
+            await fetchSchoolSettings();
 
-    // Verify user still exists in database and sync with latest data
-    if (currentSiswa) {
-        await ensureDataLoaded('students');
-        const updatedUser = db.students.find(x => x.id === currentSiswa.id && x.password === currentSiswa.password);
-        if (!updatedUser) {
-            console.warn('User from session not found in database or password mismatch, logging out');
-            clearSession();
-            window.location.href = 'index.html';
+            let res;
+            try {
+                res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/db', {}, 7000);
+            } catch (fetchErr) {
+                console.warn('[init] Server DB fetch failed or timed out:', fetchErr.message || fetchErr);
+                window.isStaticMode = true;
+                showStaticModeWarning();
+                res = null;
+            }
+
+            if (res && !res.ok && (res.status === 404 || res.status === 0)) {
+                try {
+                    res = await fetchJsonWithTimeout('database.json', {}, 7000);
+                    window.isStaticMode = true;
+                    showStaticModeWarning();
+                } catch (err) {
+                    console.warn('[init] database.json fallback failed:', err.message || err);
+                }
+            }
+
+            if (res && res.ok) {
+                const serverDb = await res.json();
+                if (serverDb) {
+                    db = normalizeDb(serverDb, db);
+                    if (db.schoolSettings && db.schoolSettings.name) {
+                        renderSchoolIdentity(db.schoolSettings);
+                    }
+                    console.log('Database synced with server (Metadata load).');
+                }
+            }
+        } catch (err) {
+            console.error('Initialization error:', err);
+        }
+
+        // NOW run migration on the final loaded data
+        migrateRombels();
+        migrateQuestionTypes();
+
+        // Re-enable login
+        if (loginBtn) {
+            loginBtn.disabled = false;
+            loginBtn.style.opacity = '1';
+            loginBtn.innerHTML = loginBtnText;
+        }
+
+        // Verify user still exists in database and sync with latest data
+        if (currentSiswa) {
+            await ensureDataLoaded('students');
+            const updatedUser = db.students.find(x => x.id === currentSiswa.id && x.password === currentSiswa.password);
+            if (!updatedUser) {
+                console.warn('User from session not found in database or password mismatch, logging out');
+                clearSession();
+                window.location.href = 'index.html';
+                return;
+            }
+
+            // CRITICAL: Update session object to latest structure (migrated rombels/subjects)
+            currentSiswa = updatedUser;
+            window.currentSiswa = updatedUser;
+            console.log('Session synchronized with latest database for:', currentSiswa.name);
+
+            const page = window.location.pathname.split('/').pop().split('?')[0];
+            if (currentSiswa.role === 'admin' && page !== 'admin.html' && page !== 'guru.html') {
+                window.location.href = 'admin.html';
+                return;
+            } else if (currentSiswa.role === 'student' && page !== 'siswa.html') {
+                window.location.href = 'siswa.html';
+                return;
+            } else if (currentSiswa.role === 'teacher' && page !== 'guru.html') {
+                window.location.href = 'guru.html';
+                return;
+            }
+
+            const loginScreen = document.getElementById('login-screen');
+            if (loginScreen) loginScreen.classList.add('hidden');
+
+            if (typeof closeModals === 'function') closeModals();
+
+            if (currentSiswa.role === 'admin') {
+                const adminDash = document.getElementById('admin-dashboard');
+                if (adminDash) adminDash.classList.remove('hidden');
+                const teacherDash = document.getElementById('teacher-dashboard');
+                if (teacherDash) teacherDash.classList.remove('hidden');
+
+                // Auto-load core data for admin
+                await ensureDataLoaded('students');
+                await ensureDataLoaded('questions');
+                await ensureDataLoaded('results');
+
+                if (typeof showAdminSection === 'function') showAdminSection('overview');
+            } else if (currentSiswa.role === 'student') {
+                const studentDash = document.getElementById('student-dashboard');
+                if (studentDash) studentDash.classList.remove('hidden');
+                const stLabel = document.getElementById('st-info-label');
+                if (stLabel) stLabel.innerText = `${currentSiswa.name} | ${currentSiswa.rombel}`;
+
+                // Auto-load core data for student
+                await ensureDataLoaded('questions');
+                await ensureDataLoaded('results', true);
+
+                console.log('[init] Student login detected, checking for exam restore...');
+                console.log('[init] studentDash element:', !!studentDash);
+                console.log('[init] restoreStudentExamProgress function:', typeof restoreStudentExamProgress);
+
+                if (typeof restoreStudentExamProgress === 'function' && studentDash) {
+                    console.log('[init] Calling restoreStudentExamProgress...');
+                    const restored = await restoreStudentExamProgress();
+                    console.log('[init] restoreStudentExamProgress result:', restored);
+                    if (!restored && typeof renderStudentExamList === 'function') {
+                        console.log('[init] No restore data, rendering exam list...');
+                        renderStudentExamList();
+                    } else if (restored) {
+                        console.log('[init] Exam restored successfully');
+                    }
+                } else if (typeof renderStudentExamList === 'function') {
+                    console.log('[init] No restore function or studentDash, rendering exam list...');
+                    renderStudentExamList();
+                }
+
+                // Request fullscreen mode for student
+                if (typeof requestFullscreen === 'function') {
+                    requestFullscreen();
+                }
+            } else if (currentSiswa.role === 'teacher') {
+                const teacherDash = document.getElementById('teacher-dashboard');
+                if (teacherDash) teacherDash.classList.remove('hidden');
+
+                // Auto-load core data for teacher
+                await ensureDataLoaded('students');
+                await ensureDataLoaded('questions');
+                await ensureDataLoaded('results');
+
+                const tcLabel = document.getElementById('teacher-info-label');
+                if (tcLabel) tcLabel.innerText = `${currentSiswa.name} | Guru ${typeof formatTeacherSubjects === 'function' ? formatTeacherSubjects(currentSiswa) : ''}`;
+                // Clear search input and API key input on initial load
+                const searchInput = document.getElementById('teacher-search-questions');
+                if (searchInput) searchInput.value = '';
+                const apiKeyInput = document.getElementById('new-api-key-input');
+                if (apiKeyInput) apiKeyInput.value = '';
+                if (typeof renderTeacherQuestions === 'function' && teacherDash) renderTeacherQuestions();
+            }
+            migrateTeacherData();
+            updateStats();
+
+            // Apply school branding AFTER dashboard is fully visible
+            // This is the definitive call that sets logo/name on the rendered dashboard
+            const schoolData = db.schoolSettings?.name ? db.schoolSettings : null;
+            if (schoolData) {
+                renderSchoolIdentity(schoolData);
+            }
+
             return;
         }
-
-        // CRITICAL: Update session object to latest structure (migrated rombels/subjects)
-        currentSiswa = updatedUser;
-        window.currentSiswa = updatedUser;
-        console.log('Session synchronized with latest database for:', currentSiswa.name);
 
         const page = window.location.pathname.split('/').pop().split('?')[0];
-        if (currentSiswa.role === 'admin' && page !== 'admin.html' && page !== 'guru.html') {
-            window.location.href = 'admin.html';
-            return;
-        } else if (currentSiswa.role === 'student' && page !== 'siswa.html') {
-            window.location.href = 'siswa.html';
-            return;
-        } else if (currentSiswa.role === 'teacher' && page !== 'guru.html') {
-            window.location.href = 'guru.html';
-            return;
+        if (page !== '' && page !== 'index.html') {
+            window.location.href = 'index.html';
+        } else {
+            if (typeof showLoginScreen === 'function' && document.getElementById('login-screen')) showLoginScreen();
         }
-
-        const loginScreen = document.getElementById('login-screen');
-        if (loginScreen) loginScreen.classList.add('hidden');
-
-        if (typeof closeModals === 'function') closeModals();
-
-        if (currentSiswa.role === 'admin') {
-            const adminDash = document.getElementById('admin-dashboard');
-            if (adminDash) adminDash.classList.remove('hidden');
-            const teacherDash = document.getElementById('teacher-dashboard');
-            if (teacherDash) teacherDash.classList.remove('hidden');
-
-            // Auto-load core data for admin
-            await ensureDataLoaded('students');
-            await ensureDataLoaded('questions');
-            await ensureDataLoaded('results');
-
-            if (typeof showAdminSection === 'function') showAdminSection('overview');
-        } else if (currentSiswa.role === 'student') {
-            const studentDash = document.getElementById('student-dashboard');
-            if (studentDash) studentDash.classList.remove('hidden');
-            const stLabel = document.getElementById('st-info-label');
-            if (stLabel) stLabel.innerText = `${currentSiswa.name} | ${currentSiswa.rombel}`;
-
-            // Auto-load core data for student
-            await ensureDataLoaded('questions');
-            await ensureDataLoaded('results', true);
-
-            console.log('[init] Student login detected, checking for exam restore...');
-            console.log('[init] studentDash element:', !!studentDash);
-            console.log('[init] restoreStudentExamProgress function:', typeof restoreStudentExamProgress);
-
-            if (typeof restoreStudentExamProgress === 'function' && studentDash) {
-                console.log('[init] Calling restoreStudentExamProgress...');
-                const restored = await restoreStudentExamProgress();
-                console.log('[init] restoreStudentExamProgress result:', restored);
-                if (!restored && typeof renderStudentExamList === 'function') {
-                    console.log('[init] No restore data, rendering exam list...');
-                    renderStudentExamList();
-                } else if (restored) {
-                    console.log('[init] Exam restored successfully');
-                }
-            } else if (typeof renderStudentExamList === 'function') {
-                console.log('[init] No restore function or studentDash, rendering exam list...');
-                renderStudentExamList();
-            }
-
-            // Request fullscreen mode for student
-            if (typeof requestFullscreen === 'function') {
-                requestFullscreen();
-            }
-        } else if (currentSiswa.role === 'teacher') {
-            const teacherDash = document.getElementById('teacher-dashboard');
-            if (teacherDash) teacherDash.classList.remove('hidden');
-
-            // Auto-load core data for teacher
-            await ensureDataLoaded('students');
-            await ensureDataLoaded('questions');
-            await ensureDataLoaded('results');
-
-            const tcLabel = document.getElementById('teacher-info-label');
-            if (tcLabel) tcLabel.innerText = `${currentSiswa.name} | Guru ${typeof formatTeacherSubjects === 'function' ? formatTeacherSubjects(currentSiswa) : ''}`;
-            // Clear search input and API key input on initial load
-            const searchInput = document.getElementById('teacher-search-questions');
-            if (searchInput) searchInput.value = '';
-            const apiKeyInput = document.getElementById('new-api-key-input');
-            if (apiKeyInput) apiKeyInput.value = '';
-            if (typeof renderTeacherQuestions === 'function' && teacherDash) renderTeacherQuestions();
-        }
-        migrateTeacherData();
-        updateStats();
-
-        // Apply school branding AFTER dashboard is fully visible
-        // This is the definitive call that sets logo/name on the rendered dashboard
-        const schoolData = db.schoolSettings?.name ? db.schoolSettings : null;
-        if (schoolData) {
-            renderSchoolIdentity(schoolData);
-        }
-
-        return;
-    }
-
-    const page = window.location.pathname.split('/').pop().split('?')[0];
-    if (page !== '' && page !== 'index.html') {
-        window.location.href = 'index.html';
-    } else {
-        if (typeof showLoginScreen === 'function' && document.getElementById('login-screen')) showLoginScreen();
+    } catch (err) {
+        console.error('[init] Initialization error:', err);
+    } finally {
+        hideLoadingOverlay();
     }
 }
+window.init = init;
 
 function showLoginScreen() {
     const login = document.getElementById('login-screen');
@@ -645,26 +801,9 @@ async function sendResult(result) {
     }
     if (!success) throw new Error('could not send result to server');
 }
+window.sendResult = sendResult;
 
 async function save(options = {}) {
-    const isAdminMode = typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode;
-    const shouldRefreshBeforeSave = Boolean(options.refreshBeforeSave || (isAdminMode && options.forceServerSave));
-
-    // Admin mode is LOCAL-ONLY by default. All admin edits are kept in the browser
-    // until the admin explicitly clicks the sync button, which calls save({ forceServerSave: true }).
-    if (isAdminMode && !options.forceServerSave) {
-        adminSyncState.hasUnsyncedChanges = true;
-        if (typeof updateAdminSyncIndicator === 'function') updateAdminSyncIndicator();
-        console.log('[SAVE] Admin mode active: persisting locally only, waiting for manual sync.');
-        try {
-            await saveLocalDb();
-            updateStats();
-        } catch (err) {
-            console.warn('LocalStorage save failed:', err.message || err);
-        }
-        return;
-    }
-
     // Students should not overwrite the entire DB structure via /api/db 
     // as they may have stale caches that erase admin settings.
     // Their results are handled separately via sendResult().
@@ -681,20 +820,13 @@ async function save(options = {}) {
     }
 
     // OPTIONAL: Refresh from server before saving to avoid overwriting recent changes from other admins
-    if (shouldRefreshBeforeSave) {
+    if (options.refreshBeforeSave) {
         try {
             const res = await fetch(getApiBaseUrl() + '/api/db?t=' + Date.now());
             if (res.ok) {
                 const serverDb = await res.json();
                 if (serverDb && serverDb.students) {
-                    // Merge results from server to local state
                     if (serverDb.results) db.results = mergeResults(db.results, serverDb.results);
-
-                    // Keep the current local state as higher priority while preventing stale overwrites.
-                    if (serverDb.questions) db.questions = Array.isArray(serverDb.questions) ? serverDb.questions : db.questions;
-                    if (serverDb.students) db.students = Array.isArray(serverDb.students) ? serverDb.students : db.students;
-                    if (serverDb.subjects) db.subjects = Array.isArray(serverDb.subjects) ? serverDb.subjects : db.subjects;
-                    if (serverDb.rombels) db.rombels = Array.isArray(serverDb.rombels) ? serverDb.rombels : db.rombels;
                 }
             }
         } catch (e) {
@@ -702,19 +834,15 @@ async function save(options = {}) {
         }
     }
 
-    // First send database to server; don’t let localStorage issues
-    // block the network request.
+    // First send database to server; don’t let localStorage issues block the network request.
     let serverSaveSuccess = false;
     let retries = 3;
 
     showToast('Menyimpan ke server...', 'info');
     while (retries > 0 && !serverSaveSuccess) {
         try {
-            // PROTEKSI DATA: Jangan kirim koleksi besar jika belum dimuat (agar tidak menimpa dengan array kosong)
-            // CATATAN: students SELALU dikirim karena ini data master penting (bukan koleksi besar)
             const payloadToSync = { ...db };
             if (!loadedCollections.questions) delete payloadToSync.questions;
-            // students selalu disertakan — hapus baris: if (!loadedCollections.students) delete payloadToSync.students;
             if (!loadedCollections.results) delete payloadToSync.results;
 
             const jsonBody = JSON.stringify(payloadToSync);
@@ -722,63 +850,12 @@ async function save(options = {}) {
 
             console.log(`[SAVE] Payload size: ${bodySize.toFixed(2)} MB`);
 
-            // If payload is large (likely causing 413 on some hosts),
-            // send metadata (dbOnly) to /api/db and send results in smaller batches
-            if (bodySize > 0.9 && Array.isArray(payloadToSync.results) && payloadToSync.results.length > 0) {
-                // Send DB without results first
-                const { results, ...dbOnly } = payloadToSync;
-                const dbJson = JSON.stringify(dbOnly);
-                const resMeta = await fetch(getApiBaseUrl() + '/api/db', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: dbJson
-                });
-                if (!resMeta.ok) throw new Error('Gagal sync metadata ke server');
-
-                // Helper to send results in batches sized to stay under ~500KB
-                const sendResultsBatches = async (allResults) => {
-                    const maxBytes = 500 * 1024; // 500 KB
-                    let batch = [];
-                    for (const r of allResults) {
-                        batch.push(r);
-                        const size = JSON.stringify(batch).length;
-                        if (size >= maxBytes) {
-                            const ok = await postResultsBatch(batch);
-                            if (!ok) throw new Error('Gagal mengirim batch results');
-                            batch = [];
-                        }
-                    }
-                    if (batch.length > 0) {
-                        const ok = await postResultsBatch(batch);
-                        if (!ok) throw new Error('Gagal mengirim batch results');
-                    }
-                };
-
-                const postResultsBatch = async (batchArray) => {
-                    try {
-                        const resBatch = await fetch(getApiBaseUrl() + '/api/results', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(batchArray)
-                        });
-                        return resBatch.ok;
-                    } catch (e) {
-                        console.warn('[SAVE] postResultsBatch error:', e.message || e);
-                        return false;
-                    }
-                };
-
-                await sendResultsBatches(payloadToSync.results);
-
-            } else {
-                // Simpan seluruh database lokal ke server dalam satu panggilan.
-                const res = await fetch(getApiBaseUrl() + '/api/db', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: jsonBody
-                });
-                if (!res.ok) throw new Error('Gagal sync database lokal ke server');
-            }
+            const res = await fetch(getApiBaseUrl() + '/api/db', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: jsonBody
+            });
+            if (!res.ok) throw new Error('Gagal sync database lokal ke server');
 
             serverSaveSuccess = true;
             console.log('Database berhasil disimpan ke server');
@@ -792,10 +869,6 @@ async function save(options = {}) {
     }
 
     if (serverSaveSuccess) {
-        if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
-            adminSyncState.hasUnsyncedChanges = false;
-            if (typeof updateAdminSyncIndicator === 'function') updateAdminSyncIndicator();
-        }
         showToast('Perubahan tersimpan ke server!', 'success');
     } else {
         console.error('PERINGATAN: Gagal menyimpan ke server setelah 3 percobaan!');
@@ -810,1452 +883,62 @@ async function save(options = {}) {
 
     updateStats();
 }
-
-function deleteResult(idx) {
-    if (!confirm('Hapus hasil ujian ini?')) return;
-    if (!db.results[idx]) return;
-    db.results[idx].deleted = true;
-    db.results[idx].updatedAt = Date.now();
-    loadedCollections.results = true;
-    updateCompletionCharts();
-
-    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
-        adminSyncState.hasUnsyncedChanges = true;
-        if (typeof updateAdminSyncIndicator === 'function') updateAdminSyncIndicator();
-        if (typeof adminSave === 'function') {
-            adminSave();
-        } else {
-            saveLocalDb();
-        }
-    } else {
-        save();
-    }
-
-    const adminDash = document.getElementById('admin-dashboard');
-    const teacherDash = document.getElementById('teacher-dashboard');
-
-    if (adminDash && !adminDash.classList.contains('hidden')) {
-        renderAdminResults();
-    } else if (teacherDash && !teacherDash.classList.contains('hidden')) {
-        renderTeacherResults();
-    }
-}
-
-function clearAllResults() {
-    const activeResults = (db.results || []).filter(r => !r.deleted);
-    if (activeResults.length === 0) {
-        alert('Tidak ada hasil ujian tersisa untuk dihapus.');
-        return;
-    }
-
-    if (!confirm('Anda yakin ingin menghapus semua data skor hasil ujian? Tindakan ini tidak dapat dibatalkan.')) return;
-
-    const now = Date.now();
-    db.results = (db.results || []).map(r => ({
-        ...r,
-        deleted: true,
-        updatedAt: now
-    }));
-
-    loadedCollections.results = true;
-    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
-        adminSyncState.hasUnsyncedChanges = true;
-        if (typeof updateAdminSyncIndicator === 'function') updateAdminSyncIndicator();
-        if (typeof adminSave === 'function') adminSave();
-    } else {
-        save();
-    }
-    updateCompletionCharts();
-    renderAdminResults();
-
-    alert('Semua hasil ujian telah dihapus secara permanen.');
-}
-
-function cleanIncompleteResults() {
-    const incompleteResults = (db.results || []).filter(r => !r.deleted && r.isIncomplete);
-
-    if (incompleteResults.length === 0) {
-        alert('✅ Tidak ada data yang tidak lengkap. Semua hasil ujian sudah sempurna!');
-        return;
-    }
-
-    const msg = `Ditemukan ${incompleteResults.length} hasil ujian yang tidak lengkap:\n\n${incompleteResults.map(r => `• ${r.studentName || 'Unknown'}`).join('\n')}\n\nYakin ingin menghapus semua data ini? (Tidak dapat dibatalkan)`;
-
-    if (!confirm(msg)) return;
-
-    const now = Date.now();
-    db.results = (db.results || []).map(r => {
-        if (!r.deleted && r.isIncomplete) {
-            return {
-                ...r,
-                deleted: true,
-                updatedAt: now
-            };
-        }
-        return r;
-    });
-
-    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
-        adminSyncState.hasUnsyncedChanges = true;
-        if (typeof updateAdminSyncIndicator === 'function') updateAdminSyncIndicator();
-        if (typeof adminSave === 'function') adminSave();
-    } else {
-        save();
-    }
-    updateCompletionCharts();
-    renderAdminResults();
-
-    alert(`✅ ${incompleteResults.length} hasil ujian yang tidak lengkap telah dihapus.`);
-}
-
-function viewDetailedResult(idx) {
-    const result = db.results[idx];
-    if (!result || result.deleted) {
-        alert('Hasil ujian tidak ditemukan atau sudah dihapus.');
-        return;
-    }
-
-    // VALIDASI: Ensure both answers dan questions exist dan valid
-    const questions = Array.isArray(result.questions) ? result.questions : [];
-    const answers = Array.isArray(result.answers) ? result.answers : [];
-
-    // Cek apakah ini adalah data incomplete
-    if (result.isIncomplete) {
-        const msg = `⚠️ Data Tidak Lengkap\n\nHasil ujian untuk "${result.studentName}" tidak memiliki struktur data yang lengkap.\n\nInfo yang tersedia:\n- Soal: ${questions.length} soal\n- Jawaban: Tidak tersimpan\n- Skor: Belum dihitung\n\nOpsi:\n1. Tunggu sinkronisasi server\n2. Hapus hasil ini dan minta siswa mengulang ujian`;
-        alert(msg);
-        return;
-    }
-
-    if (questions.length === 0) {
-        alert('❌ Data Soal Tidak Tersedia\n\nUntuk hasil ujian ini tidak ditemukan data soal yang lengkap. Kemungkinan:\n1. Data rusak atau tidak tersimpan dengan sempurna\n2. Ujian belum selesai disimpan\n3. Ada masalah saat sinkronisasi\n\nSilakan hapus hasil ini dan minta siswa mengulang ujian.');
-        return;
-    }
-
-    // Ensure arrays sama panjang
-    while (answers.length < questions.length) {
-        answers.push(null);
-    }
-
-    console.log(`Viewing result #${idx}: ${questions.length} soal, ${answers.length} jawaban`);
-
-    // Helper function to escape HTML
-    const escapeHtml = (text) => {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    };
-
-    let content = `<div class="mb-8">
-                <h3 class="text-2xl font-black text-slate-800 mb-2">Detail Jawaban - ${escapeHtml(result.studentName)}</h3>
-                <p class="text-slate-600 text-sm font-medium">Rombel: <span class="font-bold text-slate-800">${result.rombel}</span> | Mata Pelajaran: <span class="font-bold text-slate-800">${result.mapel}</span> | Skor: <span class="font-bold text-sky-600 text-lg">${result.score}</span></p>
-            </div>`;
-
-    questions.forEach((q, i) => {
-        // DEFENSIVE: Handle missing or invalid question
-        if (!q || typeof q !== 'object') {
-            console.warn(`Question ${i} is invalid:`, q);
-            return;
-        }
-
-        const studentAnswer = answers[i];
-        const correctAnswer = q.correct !== undefined ? q.correct : null;
-        const qType = q.type || 'single';
-
-        content += `<div class="mb-8 p-6 bg-gradient-to-br from-slate-50 to-slate-100 rounded-2xl border border-slate-200 shadow-sm">
-                    <div class="flex items-center gap-3 mb-4">
-                        <span class="w-8 h-8 bg-sky-600 text-white rounded-full flex items-center justify-center text-sm font-bold">${i + 1}</span>
-                        <h4 class="font-bold text-slate-800 text-lg">Soal</h4>
-                    </div>
-                    <div class="text-slate-800 mb-4 leading-relaxed">${q.text}</div>
-                    <p class="text-xs text-slate-500 mb-2"><strong>Jenis:</strong> ${qType === 'single' ? 'Pilihan ganda' : qType === 'multiple' ? 'Pilihan ganda (Kompleks)' : qType === 'text' ? 'Esai' : qType === 'tf' ? 'Benar / Salah' : escapeHtml(qType)}</p>`;
-
-        if (q.images && Array.isArray(q.images) && q.images.length > 0) {
-            content += '<div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">';
-            q.images.forEach((img, imgIdx) => {
-                const imgSrc = typeof img === 'string' ? img : (img.data || '');
-                content += `<div class="relative">
-                            <img src="${imgSrc}" alt="Gambar soal ${imgIdx + 1}" class="w-full h-auto rounded-lg border border-slate-300 shadow-sm">
-                            <span class="absolute top-2 right-2 bg-sky-600 text-white text-xs font-bold px-2 py-1 rounded">${imgIdx + 1}</span>
-                        </div>`;
-            });
-            content += '</div>';
-        } else if (q.image) {
-            // Backward compatibility for single image
-            const imgSrcSingle = typeof q.image === 'string' ? q.image : (q.image.data || '');
-            content += `<img src="${imgSrcSingle}" alt="Gambar soal" class="mb-4 max-w-full h-auto rounded-lg border border-slate-300 shadow-sm">`;
-        }
-
-        // Display options and answers
-        const qOptions = Array.isArray(q.options) ? q.options : [];
-
-        if (qType === 'single' || qType === 'multiple') {
-            content += '<div class="space-y-2 mt-4">';
-            qOptions.forEach((opt, optIdx) => {
-                let isStudentAnswer = false;
-                let isCorrectAnswer = false;
-
-                if (qType === 'single') {
-                    isStudentAnswer = studentAnswer === optIdx;
-                    isCorrectAnswer = correctAnswer === optIdx;
-                } else if (qType === 'multiple') {
-                    isStudentAnswer = Array.isArray(studentAnswer) && studentAnswer.includes(optIdx);
-                    isCorrectAnswer = Array.isArray(correctAnswer) && correctAnswer.includes(optIdx);
-                }
-
-                let className = 'p-3 rounded-xl text-sm font-medium transition-all border-2 ';
-                let icon = '';
-
-                if (isCorrectAnswer && isStudentAnswer) {
-                    className += 'bg-emerald-50 text-emerald-900 border-emerald-400 shadow-sm';
-                    icon = '<i class="fas fa-check-circle text-emerald-600 mr-2"></i>';
-                } else if (isCorrectAnswer && !isStudentAnswer) {
-                    className += 'bg-emerald-50 text-emerald-900 border-emerald-400 shadow-sm';
-                    icon = '<i class="fas fa-lightbulb text-emerald-600 mr-2"></i>';
-                } else if (isStudentAnswer) {
-                    className += 'bg-red-50 text-red-900 border-red-400 shadow-sm';
-                    icon = '<i class="fas fa-times-circle text-red-600 mr-2"></i>';
-                } else {
-                    className += 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50';
-                    icon = '';
-                }
-
-                content += `<div class="${className}">${icon}<span class="font-bold">${String.fromCharCode(65 + optIdx)}.</span> ${opt}</div>`;
-            });
-            content += '</div>';
-        } else if (qType === 'text') {
-            const studentText = studentAnswer || '';
-            const correctText = correctAnswer || '';
-            const manualScore = result.manualScores ? result.manualScores[i] : undefined;
-            const aiFeedback = result.aiEssayFeedback ? result.aiEssayFeedback[i] : '';
-            const scoreValue = (manualScore !== undefined && manualScore !== null) ? Number(manualScore).toFixed(1) : '';
-            const panelClass = (manualScore !== undefined && manualScore !== null) ? 'border-violet-300 bg-violet-50' : 'border-dashed border-violet-200 bg-violet-50/40';
-            content += `<div class="space-y-3 mt-4">
-                        <div class="bg-white border-2 border-slate-200 rounded-xl p-4">
-                            <p class="text-xs font-black text-slate-400 uppercase tracking-wider mb-2">Jawaban Siswa:</p>
-                            <p class="text-slate-800 leading-relaxed whitespace-pre-wrap border-l-4 border-sky-400 pl-3">${escapeHtml(studentText) || '<em class="text-slate-400">Tidak dijawab</em>'}</p>
-                        </div>
-                        <div class="bg-emerald-50 border-2 border-emerald-300 rounded-xl p-4">
-                            <p class="text-xs font-black text-emerald-600 uppercase tracking-wider mb-2">Kunci Jawaban:</p>
-                            <p class="text-emerald-900 leading-relaxed whitespace-pre-wrap border-l-4 border-emerald-500 pl-3">${escapeHtml(correctText) || '<em class="text-emerald-500">Tidak ada kunci</em>'}</p>
-                        </div>
-                        <div class="rounded-xl border-2 ${panelClass} p-4">
-                            <div class="flex items-center justify-between mb-2">
-                                <p class="text-xs font-black text-violet-600 uppercase tracking-wider flex items-center gap-1"><i class="fas fa-robot"></i> Koreksi Esai</p>
-                                ${scoreValue ? `<span class="inline-flex items-center gap-1 px-3 py-1 bg-violet-600 text-white rounded-full text-xs font-black"><i class="fas fa-star"></i> ${scoreValue} / 5</span>` : `<span class="text-xs text-violet-600 italic">Belum ada skor</span>`}
-                            </div>
-                            ${aiFeedback ? `<p class="text-slate-700 text-sm leading-relaxed italic mb-3">"${escapeHtml(aiFeedback)}"</p>` : ''}
-                            <div class="flex items-center gap-2 flex-wrap mt-1">
-                                <label class="text-xs text-slate-500 font-semibold">Ubah Skor Manual:</label>
-                                <input type="number" id="ai-essay-score-input-${idx}-${i}" min="0" max="5" step="0.5" value="${scoreValue}" placeholder="0.0" class="w-20 border border-slate-300 rounded-lg px-2 py-1 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-violet-400">
-                                <button onclick="applyEssayScore(${idx}, ${i}, document.getElementById('ai-essay-score-input-${idx}-${i}').value)" class="px-3 py-1 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-lg transition-colors"><i class="fas fa-check mr-1"></i>Terapkan</button>
-                            </div>
-                            ${(!aiFeedback && !scoreValue) ? `<p class="text-xs text-violet-400 mt-2 italic">Belum dikoreksi AI. Anda dapat langsung memberi nilai manual atau gunakan tombol "Koreksi AI" di tabel hasil ujian.</p>` : ''}
-                        </div>
-                    </div>`;
-
-        } else if (qType === 'tf') {
-            content += '<div class="space-y-2 mt-4">';
-            qOptions.forEach((opt, optIdx) => {
-                const studentAns = Array.isArray(studentAnswer) ? studentAnswer[optIdx] : null;
-                const correctAns = Array.isArray(correctAnswer) ? correctAnswer[optIdx] : null;
-                const isCorrect = studentAns === correctAns;
-                const studentText = studentAns === true ? 'Benar' : studentAns === false ? 'Salah' : 'Tidak dijawab';
-                const correctText = correctAns === true ? 'Benar' : correctAns === false ? 'Salah' : 'N/A';
-
-                let className = 'p-4 rounded-xl text-sm font-medium border-2 transition-all ';
-                let icon = '';
-
-                if (isCorrect) {
-                    className += 'bg-emerald-50 text-emerald-900 border-emerald-400 shadow-sm';
-                    icon = '<i class="fas fa-check-circle text-emerald-600 mr-2"></i>';
-                } else {
-                    className += 'bg-red-50 text-red-900 border-red-400 shadow-sm';
-                    icon = '<i class="fas fa-times-circle text-red-600 mr-2"></i>';
-                }
-
-                content += `<div class="${className}">
-                            ${icon}
-                            <div class="flex justify-between items-start">
-                                <span class="flex-1">${opt}</span>
-                                <div class="text-right ml-4">
-                                    <div class="text-xs text-slate-500 mb-1">Siswa: <span class="font-bold">${studentText}</span></div>
-                                    <div class="text-xs text-slate-500">Kunci: <span class="font-bold">${correctText}</span></div>
-                                </div>
-                            </div>
-                        </div>`;
-            });
-            content += '</div>';
-        } else if (qType === 'matching') {
-            // Fallback: If questions/answers were not saved in result, try to find them in the bank
-            let qSubQuestions = q.questions || [];
-            let qSubAnswers = q.answers || [];
-
-            if (qSubQuestions.length === 0) {
-                // Use strict lookup: must match text AND mapel AND rombel AND type
-                const originalQ = db.questions.find(orig =>
-                    orig.type === 'matching' &&
-                    orig.mapel === q.mapel &&
-                    orig.rombel === q.rombel &&
-                    (orig.text === q.text || (q.text && orig.text && orig.text.substring(0, 30) === q.text.substring(0, 30)))
-                );
-                if (originalQ) {
-                    qSubQuestions = originalQ.questions || [];
-                    qSubAnswers = originalQ.answers || [];
-                }
-            }
-
-            content += '<div class="space-y-3 mt-4">';
-            if (qSubQuestions.length === 0) {
-                content += '<div class="p-4 bg-yellow-50 text-yellow-700 text-xs rounded-xl border border-yellow-200">Data pertanyaan menjodohkan tidak ditemukan.</div>';
-            }
-            qSubQuestions.forEach((subQ, qi) => {
-                const rawAns = Array.isArray(studentAnswer) ? studentAnswer[qi] : null;
-                // Answers are stored as strings after submitExam transform
-                const sAns = (rawAns !== null && rawAns !== undefined) ? String(rawAns) : null;
-                const cAns = Array.isArray(correctAnswer) ? correctAnswer[qi] : null;
-                const isCorrect = sAns !== null && cAns !== null && sAns === String(cAns);
-                const displayAns = sAns || '<em class="opacity-50">Tidak dijawab</em>';
-
-                let className = 'p-4 rounded-2xl border-2 transition-all ';
-                let icon = '';
-
-                if (sAns === null) {
-                    className += 'bg-slate-50 border-slate-200 text-slate-500 shadow-sm';
-                    icon = '<i class="fas fa-minus-circle text-slate-400"></i>';
-                } else if (isCorrect) {
-                    className += 'bg-emerald-50 border-emerald-200 text-emerald-900 shadow-sm';
-                    icon = '<i class="fas fa-check-circle text-emerald-500"></i>';
-                } else {
-                    className += 'bg-red-50 border-red-200 text-red-900 shadow-sm';
-                    icon = '<i class="fas fa-times-circle text-red-500"></i>';
-                }
-
-                content += `
-                        <div class="${className}">
-                            <div class="flex items-center justify-between gap-4">
-                                <div class="flex items-center gap-3 flex-1 min-w-0">
-                                    <div class="w-8 h-8 rounded-lg bg-white/50 flex items-center justify-center text-xs font-bold border border-current/10 flex-shrink-0">${qi + 1}</div>
-                                    <div class="truncate font-semibold">${subQ}</div>
-                                </div>
-                                <div class="text-right ml-4">
-                                    <div class="text-xs text-slate-500 mb-1">Siswa: <span class="font-bold">${studentText}</span></div>
-                                    <div class="text-xs text-slate-500">Kunci: <span class="font-bold">${correctText}</span></div>
-                                </div>
-                                <div class="text-lg">${icon}</div>
-                            </div>
-                        </div>`;
-            });
-            content += '</div>';
-        } else {
-            content += `<div class="bg-yellow-50 border border-yellow-300 rounded-xl p-4 text-yellow-800 text-sm">
-                        <i class="fas fa-exclamation-triangle mr-2"></i>
-                        Tipe soal tidak dikenali: ${escapeHtml(qType)}
-                    </div>`;
-        }
-
-        content += '</div>';
-    });
-
-    // Create modal
-    const modal = document.createElement('div');
-    modal.className = 'fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50 backdrop-blur-sm';
-    modal.innerHTML = `
-                <div class="bg-white rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto animate-fade-in">
-                    <div class="flex justify-between items-center p-8 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white sticky top-0">
-                        <h2 class="text-2xl font-black text-slate-800">Detail Jawaban Ujian</h2>
-                        <button onclick="this.closest('.fixed').remove()" class="text-slate-400 hover:text-slate-600 text-2xl transition-colors">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
-                    <div class="p-8">
-                        ${content}
-                    </div>
-                </div>
-            `;
-    document.body.appendChild(modal);
-}
-
-async function batchAiCorrectEssay(resultIdx) {
-    const result = db.results[resultIdx];
-    if (!result) return;
-
-    const questions = result.questions || [];
-    const answers = result.answers || [];
-
-    // Collect uncorrected essay question indices
-    const essayIndices = questions.reduce((acc, q, i) => {
-        if (q.type === 'text' &&
-            (!result.manualScores || result.manualScores[i] === undefined || result.manualScores[i] === null) &&
-            (!result.aiEssayFeedback || result.aiEssayFeedback[i] === undefined || result.aiEssayFeedback[i] === null)
-        ) {
-            acc.push(i);
-        }
-        return acc;
-    }, []);
-
-    if (essayIndices.length === 0) {
-        alert('Semua soal esai untuk siswa ini sudah pernah dikoreksi AI/Manual.');
-        return;
-    }
-
-    // Show progress overlay
-    const overlay = document.createElement('div');
-    overlay.id = 'ai-batch-overlay';
-    overlay.className = 'fixed inset-0 bg-slate-900/70 flex items-center justify-center z-50 backdrop-blur-sm';
-    overlay.innerHTML = `
-                <div class="bg-white rounded-3xl shadow-2xl p-8 max-w-sm w-full mx-4 text-center">
-                    <div class="w-16 h-16 bg-gradient-to-br from-violet-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-                        <i class="fas fa-robot text-white text-2xl"></i>
-                    </div>
-                    <h3 class="text-lg font-black text-slate-800 mb-1">AI Sedang Mengoreksi</h3>
-                    <p id="ai-batch-status" class="text-slate-500 text-sm mb-4">Memproses soal esai...</p>
-                    <div class="w-full bg-slate-100 rounded-full h-3 mb-2">
-                        <div id="ai-batch-progress" class="h-3 bg-gradient-to-r from-violet-500 to-purple-500 rounded-full transition-all duration-500" style="width: 0%"></div>
-                    </div>
-                    <p id="ai-batch-counter" class="text-xs text-slate-400 font-semibold">0 / ${essayIndices.length} soal</p>
-                </div>`;
-    document.body.appendChild(overlay);
-
-    const statusEl = document.getElementById('ai-batch-status');
-    const progressEl = document.getElementById('ai-batch-progress');
-    const counterEl = document.getElementById('ai-batch-counter');
-
-    const btn = document.getElementById(`ai-batch-btn-${resultIdx}`);
-    if (btn) btn.disabled = true;
-
-    let successCount = 0;
-    let errorCount = 0;
-
-    if (!result.manualScores) result.manualScores = {};
-    if (!result.aiEssayFeedback) result.aiEssayFeedback = {};
-
-    for (let idx = 0; idx < essayIndices.length; idx++) {
-        const qi = essayIndices[idx];
-        const q = questions[qi];
-        const studentAnswer = answers[qi];
-
-        if (statusEl) statusEl.textContent = `Mengoreksi soal ${idx + 1} dari ${essayIndices.length}...`;
-        if (progressEl) progressEl.style.width = `${((idx) / essayIndices.length) * 100}%`;
-        if (counterEl) counterEl.textContent = `${idx} / ${essayIndices.length} soal selesai`;
-
-        try {
-            const response = await fetch(getApiBaseUrl() + '/api/ai-correct-essay', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    questionText: q.text || '',
-                    studentAnswer: typeof studentAnswer === 'string' ? studentAnswer : '',
-                    referenceAnswer: q.correct || '',
-                    teacherId: currentSiswa ? currentSiswa.id : null
-                })
-            });
-            const data = await response.json();
-            if (response.ok && data.ok) {
-                result.manualScores[qi] = data.score;
-                result.aiEssayFeedback[qi] = data.feedback;
-                successCount++;
-            } else {
-                errorCount++;
-            }
-        } catch (e) {
-            console.error(`[batchAiCorrect] Error on question ${qi}:`, e.message);
-            errorCount++;
-        }
-    }
-
-    // Final progress
-    if (progressEl) progressEl.style.width = '100%';
-    if (counterEl) counterEl.textContent = `${essayIndices.length} / ${essayIndices.length} soal selesai`;
-    if (statusEl) statusEl.textContent = 'Menghitung ulang skor...';
-
-    // Recalculate total score
-    let totalItems = 0;
-    let correctCount = 0;
-    questions.forEach((q, i) => {
-        const ans = answers[i];
-        const qType = q.type || 'single';
-        if (qType === 'text') {
-            const essayScore = (result.manualScores[i] !== undefined && result.manualScores[i] !== null) ? result.manualScores[i] : 0;
-            totalItems += 5;
-            correctCount += essayScore;
-        } else if (qType === 'tf' && Array.isArray(q.options)) {
-            const ansArr = Array.isArray(ans) ? ans : [];
-            q.options.forEach((_, j) => {
-                totalItems++;
-                const corrVal = Array.isArray(q.correct) ? q.correct[j] : false;
-                if (ansArr[j] === corrVal) correctCount++;
-            });
-        } else if (qType === 'multiple') {
-            const corr = Array.isArray(q.correct) ? q.correct : [];
-            const ansArr = Array.isArray(ans) ? ans : [];
-            const totalCorrectOpts = corr.length > 0 ? corr.length : 1;
-            totalItems += totalCorrectOpts;
-            correctCount += ansArr.filter(idx2 => corr.includes(idx2)).length;
-        } else if (qType === 'matching') {
-            const ansArr = Array.isArray(ans) ? ans : [];
-            const corrArr = Array.isArray(q.correct) ? q.correct : [];
-            if (Array.isArray(q.questions)) {
-                q.questions.forEach((_, qi2) => {
-                    totalItems++;
-                    const a = ansArr[qi2];
-                    const c = corrArr[qi2];
-                    if (a !== null && a !== undefined && c !== null && c !== undefined && String(a) === String(c)) correctCount++;
-                });
-            } else {
-                totalItems++;
-            }
-        } else {
-            totalItems++;
-            if (ans === q.correct) correctCount++;
-        }
-    });
-
-    const newScore = totalItems > 0 ? ((correctCount / totalItems) * 100).toFixed(1) : '0.0';
-    result.score = newScore;
-    result.updatedAt = Date.now();
-    db.results[resultIdx] = result;
-
-    // Save and close overlay
-    try {
-        await save();
-    } catch (e) {
-        alert('Gagal menyimpan skor: ' + e.message);
-    }
-
-    overlay.remove();
-    if (btn) btn.disabled = false;
-
-    // Refresh the active dashboard
-    const adminDash = document.getElementById('admin-dashboard');
-    const teacherDash = document.getElementById('teacher-dashboard');
-    if (adminDash && !adminDash.classList.contains('hidden')) {
-        renderAdminResults();
-    } else if (teacherDash && !teacherDash.classList.contains('hidden')) {
-        renderTeacherResults();
-    }
-
-    const msg = errorCount === 0
-        ? `✅ Semua ${successCount} soal esai berhasil dikoreksi AI!\nSkor baru: ${newScore}`
-        : `⚠️ ${successCount} soal berhasil, ${errorCount} soal gagal.\nSkor baru: ${newScore}`;
-    alert(msg);
-}
-
-async function runAiCorrection(resultIdx, qIdx) {
-    const result = db.results[resultIdx];
-    if (!result) return;
-    const q = (result.questions || [])[qIdx];
-    const studentAnswer = (result.answers || [])[qIdx];
-
-    const btnEl = document.getElementById(`ai-essay-btn-${resultIdx}-${qIdx}`);
-    const loadingEl = document.getElementById(`ai-essay-loading-${resultIdx}-${qIdx}`);
-    const resultEl = document.getElementById(`ai-essay-result-${resultIdx}-${qIdx}`);
-    const panelEl = document.getElementById(`ai-essay-panel-${resultIdx}-${qIdx}`);
-
-    if (btnEl) btnEl.disabled = true;
-    if (loadingEl) { loadingEl.classList.remove('hidden'); loadingEl.style.display = 'flex'; }
-
-    try {
-        const response = await fetch(getApiBaseUrl() + '/api/ai-correct-essay', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                questionText: q ? q.text : '',
-                studentAnswer: typeof studentAnswer === 'string' ? studentAnswer : '',
-                referenceAnswer: q ? (q.correct || '') : '',
-                teacherId: currentSiswa ? currentSiswa.id : null
-            })
-        });
-
-        const data = await response.json();
-        if (!response.ok || !data.ok) {
-            alert('Gagal koreksi AI: ' + (data.error || 'Terjadi kesalahan.'));
-            return;
-        }
-
-        const score = data.score;
-        const feedback = data.feedback;
-
-        // Display result in UI
-        if (resultEl) {
-            resultEl.innerHTML = `
-                        <p class="text-slate-700 text-sm leading-relaxed mb-3 italic">"${feedback.replace(/</g, '&lt;').replace(/>/g, '&gt;')}"</p>
-                        <div class="flex items-center gap-2 flex-wrap">
-                            <label class="text-xs text-slate-500 font-semibold">Skor AI: <strong class="text-violet-700">${score.toFixed(1)}/5</strong> &nbsp;|&nbsp; Ubah:</label>
-                            <input type="number" id="ai-essay-score-input-${resultIdx}-${qIdx}" min="0" max="5" step="0.5" value="${score.toFixed(1)}" placeholder="0.0" class="w-20 border border-slate-300 rounded-lg px-2 py-1 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-violet-400">
-                            <button onclick="applyEssayScore(${resultIdx}, ${qIdx}, document.getElementById('ai-essay-score-input-${resultIdx}-${qIdx}').value)" class="px-3 py-1 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-lg transition-colors"><i class="fas fa-check mr-1"></i>Terapkan</button>
-                        </div>`;
-            resultEl.classList.remove('hidden');
-        }
-
-        // Update panel badge
-        if (panelEl) {
-            panelEl.classList.remove('border-slate-200');
-            panelEl.classList.add('border-violet-300', 'bg-violet-50');
-            const badgeContainer = panelEl.querySelector('.flex.items-center.justify-between');
-            if (badgeContainer) {
-                const existingBadge = badgeContainer.querySelector('span');
-                if (existingBadge) existingBadge.remove();
-                const badge = document.createElement('span');
-                badge.className = 'inline-flex items-center gap-1 px-3 py-1 bg-violet-500 text-white rounded-full text-xs font-black';
-                badge.innerHTML = `<i class="fas fa-star"></i> Skor AI: ${score.toFixed(1)} / 5`;
-                badgeContainer.appendChild(badge);
-            }
-        }
-
-        if (btnEl) btnEl.textContent = '✦ Koreksi Ulang dengan AI';
-
-    } catch (e) {
-        alert('Error: ' + e.message);
-    } finally {
-        if (loadingEl) { loadingEl.classList.add('hidden'); loadingEl.style.display = ''; }
-        if (btnEl) btnEl.disabled = false;
-    }
-}
-
-async function applyEssayScore(resultIdx, qIdx, rawScore) {
-    const result = db.results[resultIdx];
-    if (!result) return;
-
-    const score = Math.min(5, Math.max(0, parseFloat(rawScore) || 0));
-
-    // Save manual score and feedback
-    if (!result.manualScores) result.manualScores = {};
-    result.manualScores[qIdx] = score;
-
-    // Also persist AI feedback if available
-    const feedbackEl = document.getElementById(`ai-essay-result-${resultIdx}-${qIdx}`)?.querySelector('p.italic');
-    if (feedbackEl) {
-        if (!result.aiEssayFeedback) result.aiEssayFeedback = {};
-        result.aiEssayFeedback[qIdx] = feedbackEl.textContent.replace(/^"|"$/g, '');
-    }
-
-    // Recalculate total score
-    // Essay questions get a weight of 5 (max). Others use the existing per-item scoring.
-    const questions = result.questions || [];
-    const answers = result.answers || [];
-    let totalItems = 0;
-    let correctCount = 0;
-
-    questions.forEach((q, i) => {
-        const ans = answers[i];
-        const qType = q.type || 'single';
-
-        if (qType === 'text') {
-            // Essay contributes 5 points max
-            const essayScore = (result.manualScores && result.manualScores[i] !== undefined && result.manualScores[i] !== null)
-                ? result.manualScores[i]
-                : 0;
-            totalItems += 5;
-            correctCount += essayScore;
-        } else if (qType === 'tf' && Array.isArray(q.options)) {
-            const ansArr = Array.isArray(ans) ? ans : [];
-            q.options.forEach((_, j) => {
-                totalItems++;
-                const corrVal = Array.isArray(q.correct) ? q.correct[j] : false;
-                if (ansArr[j] === corrVal) correctCount++;
-            });
-        } else if (qType === 'multiple') {
-            const corr = Array.isArray(q.correct) ? q.correct : [];
-            const ansArr = Array.isArray(ans) ? ans : [];
-            const totalCorrectOpts = corr.length > 0 ? corr.length : 1;
-            totalItems += totalCorrectOpts;
-            correctCount += ansArr.filter(idx => corr.includes(idx)).length;
-        } else if (qType === 'matching') {
-            const ansArr = Array.isArray(ans) ? ans : [];
-            const corrArr = Array.isArray(q.correct) ? q.correct : [];
-            if (Array.isArray(q.questions)) {
-                q.questions.forEach((_, qi) => {
-                    totalItems++;
-                    const a = ansArr[qi];
-                    const c = corrArr[qi];
-                    if (a !== null && a !== undefined && c !== null && c !== undefined && String(a) === String(c)) correctCount++;
-                });
-            } else {
-                totalItems++;
-            }
-        } else {
-            totalItems++;
-            if (ans === q.correct) correctCount++;
-        }
-    });
-
-    const newScore = totalItems > 0 ? ((correctCount / totalItems) * 100).toFixed(1) : '0.0';
-    result.score = newScore;
-    result.updatedAt = Date.now();
-
-    // Update in db array
-    db.results[resultIdx] = result;
-
-    // Persist to backend
-    try {
-        await save();
-        // Refresh score in modal badge
-        const panelEl = document.getElementById(`ai-essay-panel-${resultIdx}-${qIdx}`);
-        if (panelEl) {
-            const badgeContainer = panelEl.querySelector('.flex.items-center.justify-between');
-            if (badgeContainer) {
-                const existingBadge = badgeContainer.querySelector('span');
-                if (existingBadge) {
-                    existingBadge.innerHTML = `<i class="fas fa-star"></i> Skor: ${score.toFixed(1)} / 5`;
-                    existingBadge.className = 'inline-flex items-center gap-1 px-3 py-1 bg-violet-600 text-white rounded-full text-xs font-black';
-                }
-            }
-        }
-        // Refresh active results table
-        const adminDash2 = document.getElementById('admin-dashboard');
-        const teacherDash2 = document.getElementById('teacher-dashboard');
-        if (adminDash2 && !adminDash2.classList.contains('hidden')) {
-            renderAdminResults();
-        } else if (teacherDash2 && !teacherDash2.classList.contains('hidden')) {
-            renderTeacherResults();
-        }
-        alert(`✅ Skor esai berhasil diterapkan! Skor baru: ${score.toFixed(1)}/5 → Total ujian: ${newScore}`);
-
-    } catch (e) {
-        alert('Gagal menyimpan skor: ' + e.message);
-    }
-}
-
-const SCHOOL_SETTINGS_KEY = 'cbt_school_settings';
-
-function normalizeSchoolSettings(settings = {}) {
-    if (!settings || typeof settings !== 'object') return {};
-    return {
-        yayasan: settings.yayasan || '',
-        name: settings.name || '',
-        principal: settings.principal || '',
-        principalNip: settings.principalNip || '',
-        address: settings.address || '',
-        kota: settings.kota || '',
-        tahun: settings.tahun || '',
-        semester: settings.semester || 'GANJIL',
-        logo: settings.logo || '',
-        logoUrl: settings.logoUrl || '',
-        ...settings
-    };
-}
-
-function renderSchoolIdentity(settings) {
-    const safeSettings = normalizeSchoolSettings(settings || db?.schoolSettings || {});
-    if (!safeSettings.name) return;
-
-    const name = safeSettings.name;
-    let logo = safeSettings.logoUrl || safeSettings.logo || localStorage.getItem('cbt_school_logo') || 'logo.png';
-    if (logo && logo !== 'undefined' && logo !== 'null' && !logo.startsWith('data:') && !logo.startsWith('http') && logo !== 'logo.png') {
-        const base = getApiBaseUrl ? getApiBaseUrl() : '';
-        if (base) logo = base + (logo.startsWith('/') ? logo : '/' + logo);
-    }
-
-    const currentTitle = document.title;
-    if (!currentTitle.includes(name.toUpperCase())) {
-        document.title = `CBT - ${name}`;
-    }
-
-    const ids = ['school-name-display', 'raport-school-name', 'cert-school-name'];
-    ids.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.innerText = name;
-    });
-
-    const loginSubtitle = document.querySelector('.cbt-subtitle');
-    const loginLogo = document.querySelector('.logo-glow');
-    if (loginSubtitle) loginSubtitle.innerText = name;
-    if (loginLogo) {
-        loginLogo.src = logo;
-        const favicon = document.querySelector('link[rel="icon"]');
-        const appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
-        if (favicon) favicon.href = logo;
-        if (appleIcon) appleIcon.href = logo;
-    }
-
-    const adminSidebarTitle = document.getElementById('admin-sidebar-title');
-    const adminSidebarLogo = document.getElementById('admin-sidebar-logo');
-    const raportLogo = document.getElementById('raport-logo');
-    if (adminSidebarTitle) adminSidebarTitle.innerText = `ADMIN CBT ${name}`;
-    if (adminSidebarLogo) adminSidebarLogo.src = logo;
-    if (raportLogo) raportLogo.src = logo;
-
-    const teacherSidebarTitle = document.getElementById('teacher-sidebar-title');
-    const teacherSidebarLogo = document.getElementById('teacher-sidebar-logo');
-    if (teacherSidebarTitle) teacherSidebarTitle.innerText = `${name} - GURU`;
-    if (teacherSidebarLogo) teacherSidebarLogo.src = logo;
-
-    const studentSidebarTitle = document.getElementById('student-sidebar-title');
-    const studentSidebarLogo = document.getElementById('student-sidebar-logo');
-    const studentMeta = document.getElementById('student-meta-school');
-    if (studentSidebarTitle) studentSidebarTitle.innerText = name;
-    if (studentSidebarLogo) studentSidebarLogo.src = logo;
-    if (studentMeta) studentMeta.innerText = name;
-}
-window.renderSchoolIdentity = renderSchoolIdentity;
-
-async function fetchSchoolSettings() {
-    try {
-        const res = await fetch(getApiBaseUrl() + '/api/school-settings');
-        if (res.ok) {
-            const settings = await res.json();
-            const safeSettings = normalizeSchoolSettings(settings);
-            if (safeSettings.name) {
-                if (!db.schoolSettings) db.schoolSettings = {};
-                Object.assign(db.schoolSettings, safeSettings);
-                renderSchoolIdentity(safeSettings);
-            }
-        }
-    } catch (e) {
-        console.warn('[fetchSchoolSettings] Failed:', e.message);
-        if (db.schoolSettings && db.schoolSettings.name) {
-            renderSchoolIdentity(db.schoolSettings);
-        }
-    }
-}
-window.fetchSchoolSettings = fetchSchoolSettings;
-
-function loadSchoolSettings() {
-    let settings = {};
-
-    if (db.schoolSettings && db.schoolSettings.name) {
-        settings = normalizeSchoolSettings(db.schoolSettings);
-    } else {
-        try {
-            const raw = localStorage.getItem(SCHOOL_SETTINGS_KEY);
-            if (raw) settings = normalizeSchoolSettings(JSON.parse(raw));
-        } catch (e) {
-            console.warn('[loadSchoolSettings] Failed reading localStorage:', e.message);
-        }
-    }
-
-    const setVal = (id, val) => {
-        const el = document.getElementById(id);
-        if (el) el.value = val || '';
-    };
-
-    setVal('school-yayasan', settings.yayasan);
-    setVal('school-name', settings.name);
-    setVal('school-principal', settings.principal);
-    setVal('school-principal-nip', settings.principalNip);
-    setVal('school-address', settings.address);
-    setVal('school-city', settings.kota);
-    setVal('school-tahun', settings.tahun);
-    setVal('school-semester', settings.semester || 'GANJIL');
-
-    let logoUrl = settings.logoUrl;
-    if (logoUrl === 'undefined' || logoUrl === 'null') logoUrl = '';
-
-    let savedLogo = logoUrl || settings.logo || localStorage.getItem('cbt_school_logo');
-    if (savedLogo && savedLogo !== 'undefined' && savedLogo !== 'null' && !savedLogo.startsWith('data:') && !savedLogo.startsWith('http') && savedLogo !== 'logo.png') {
-        const base = getApiBaseUrl ? getApiBaseUrl() : '';
-        if (base) savedLogo = base + (savedLogo.startsWith('/') ? savedLogo : '/' + savedLogo);
-    }
-
-    const logoPreview = document.getElementById('school-logo-preview');
-    const logoPlaceholder = document.getElementById('school-logo-placeholder');
-    if (savedLogo && logoPreview) {
-        logoPreview.src = savedLogo;
-        logoPreview.style.display = 'block';
-        if (logoPlaceholder) logoPlaceholder.style.display = 'none';
-    }
-}
-window.loadSchoolSettings = loadSchoolSettings;
-
-function saveSchoolSettings() {
-    const storedLogo = localStorage.getItem('cbt_school_logo') || '';
-    let storedLogoUrl = localStorage.getItem('cbt_school_logo_url') || '';
-    if (storedLogoUrl === 'undefined' || storedLogoUrl === 'null') storedLogoUrl = '';
-
-    const previewEl = document.getElementById('school-logo-preview');
-    const previewSrc = previewEl && previewEl.src ? previewEl.src : '';
-    const logoBase64 = previewSrc.startsWith('data:') ? previewSrc : storedLogo;
-
-    const settings = {
-        yayasan: document.getElementById('school-yayasan')?.value.trim() || '',
-        name: document.getElementById('school-name')?.value.trim() || '',
-        principal: document.getElementById('school-principal')?.value.trim() || '',
-        principalNip: document.getElementById('school-principal-nip')?.value.trim() || '',
-        address: document.getElementById('school-address')?.value.trim() || '',
-        kota: document.getElementById('school-city')?.value.trim() || '',
-        tahun: document.getElementById('school-tahun')?.value.trim() || '',
-        semester: document.getElementById('school-semester')?.value || 'GANJIL',
-        logo: logoBase64,
-        logoUrl: storedLogoUrl
-    };
-
-    if (!settings.name) {
-        if (typeof showToast === 'function') showToast('Nama sekolah tidak boleh kosong!', 'error');
-        return;
-    }
-
-    localStorage.setItem(SCHOOL_SETTINGS_KEY, JSON.stringify(settings));
-    if (settings.logo && settings.logo.startsWith('data:')) {
-        localStorage.setItem('cbt_school_logo', settings.logo);
-    }
-
-    if (!db.schoolSettings) db.schoolSettings = {};
-    Object.assign(db.schoolSettings, settings);
-
-    fetch(getApiBaseUrl() + '/api/school-settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
-    }).catch(e => console.warn('[SchoolSettings] Error:', e.message));
-
-    renderSchoolIdentity(settings);
-    if (typeof showToast === 'function') showToast('Identitas sekolah berhasil disimpan!', 'success');
-}
-window.saveSchoolSettings = saveSchoolSettings;
-
-// Quill Rich Text Editor Helpers
-window._quillQuestion = null;
-window._quillAnswer = null;
-window._quillQuizz = null;
-
-// Global Anti-Cheat State
-
-// Anti-Cheat Event Listeners
-
-// Anti-Copy & Select
-
-// Anti-Screenshot (PrintScreen)
-
-// Fullscreen and Wake Lock Functions
-
-// Enhanced fullscreen change detection
-
-// Multiple event listeners for comprehensive fullscreen monitoring
-
-// Additional checks for simulated fullscreen
-
-// Detect focus loss (alt+tab, clicking outside window, etc.)
-
-// Listen for page visibility changes
-
-// Returns the base URL for API calls.
-
-// Global helper to normalize image URLs
-
-/**
- * Scans an HTML string for <img> tags and normalizes their src attributes
- * so they resolve correctly (especially local /images/ paths).
- */
-
-// IndexedDB helpers - persistent storage with much larger quotas than
-// localStorage.  We still write a timestamp into localStorage after a
-// successful IDB write so that other tabs can be notified via the
-// existing "storage" listener logic.
-
-// read/write db via IDB, fallback to localStorage if IDB fails
-
-// Track which large collections have been explicitly loaded from the server
-
-/**
- * Ensures that a specific collection (questions, students, results) is loaded from the server.
- * Uses lazy loading to avoid pulling thousands of rows into memory unless needed.
- */
-
-// helper used during initialization to merge results from two sources
-
-// when another tab updates the storage we want to re-read the database.
-
-
-
-// --- AUTH ---
-
-// --- CORE FUNCTIONS ---
-
-
-
-
-// push a single result object to the server (lightweight endpoint)
-
-
-/**
-         * Generic save function that pushes the current 'db' state to the server and IndexedDB.
-         * @param {Object} options Configuration for the save operation.
-         * @param {boolean} options.refreshBeforeSave If true, fetches latest data from server 
-         *                                           and merges local changes before pushing.
-         * @param {boolean} options.forceServerSave If true, pushes to server even if the user is a student.
-         */
-
-
-
-
-// Helpers for teacher subject/rombel management
-
-
-
-// --- AUTH ---
-// showLoginForm moved to top
-
-
-
-// attach login button listener once DOM ready to avoid reference errors
-
-
-
-// --- IMPORT SISWA (NEW FEATURE) ---
-
-
-// parse Excel file to textarea for import
-
-// --- STUDENT MANAGEMENT ---
-
-
-
-
-
-
-
-// --- TEACHER QUESTION MANAGEMENT ---
-
-
-
-
-
-// ─── Manajemen Nilai Logic ───────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-// Render teacher exam results filtered by subject and rombel
-
-
-// --- SCHEDULE MANAGEMENT ---
-
-// --- TEACHER MANAGEMENT ---
-
-
-
-
-
-
-
-
-// --- TEACHER QUESTION MANAGEMENT ---
-
-
-
-// Update visual style of a single rombel label row
-
-// Update header badge, description, icon, and card border based on current checked state
-
-// Called when a single rombel checkbox changes
-
-// Called when "Pilih Semua" checkbox changes
-
-
-
-
-
-// --- UI HELPERS ---
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// toggle mobile menu visibility
-
-
-
-
-
-// --- QUESTION MANAGEMENT ---
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// --- WORD IMPORT HANDLER ---
-
-// --- RESULTS & CONFIG ---
-
-// --- EXPLICIT SAVE / LOAD DB (admin actions) ---
-
-
-
-// --- SCHOOL SETTINGS ---
-
-
-// Helper: get current school settings (for use in other parts)
-
-// --- SUBJECT LOCK MANAGEMENT ---
-
-
-// --- RESULTS & CONFIG ---
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// --- STUDENT EXAM LOGIC ---
-
-// examData keeps track of current exam state. answers array holds either
-// - a single index for single-choice questions
-// - an array of indices for multiple-choice questions
-// - a string for text/complex questions
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// --- IMAGE ZOOM FUNCTIONALITY ---
-
-
-
-
-
-
-// --- AI QUESTION GENERATION ---
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-window.editRaportScore = async function(studentId, mapel) {
-    // Find all matching results
-    const results = (db.results || []).filter(r => !r.deleted && r.studentId === studentId && r.mapel === mapel);
-    if (!results.length) {
-        Swal.fire('Error', 'Data hasil tidak ditemukan.', 'error');
-        return;
-    }
-
-    // Sort to pick the latest result (same logic as consolidatedMap in renderRaport)
-    results.sort((a, b) => new Date(b.date) - new Date(a.date));
-    const result = results[0];
-
-    const { value: newScore } = await Swal.fire({
-        title: 'Edit Nilai Raport',
-        text: `Mata Pelajaran: ${mapel}`,
-        input: 'number',
-        inputValue: Number(result.score).toFixed(1),
-
-        inputAttributes: {
-            min: 0,
-            max: 100,
-            step: 0.1
-        },
-        showCancelButton: true,
-        confirmButtonText: 'Simpan',
-        cancelButtonText: 'Batal',
-        confirmButtonColor: '#f59e0b'
-    });
-
-    if (newScore !== undefined && newScore !== null && newScore !== '') {
-        const idx = db.results.indexOf(result);
-        db.results[idx].score = parseFloat(newScore);
-        db.results[idx].updatedAt = Date.now();
-        
-        await save();
-        renderRaport();
-        
-        Swal.fire({
-            icon: 'success',
-            title: 'Nilai Diperbarui',
-            toast: true,
-            position: 'top-end',
-            showConfirmButton: false,
-            timer: 2000
-        });
-    }
-}
-
-window.deleteRaportEntry = async function(studentId, mapel) {
-    const results = (db.results || []).filter(r => !r.deleted && r.studentId === studentId && r.mapel === mapel);
-    if (!results.length) {
-        Swal.fire('Error', 'Data hasil tidak ditemukan.', 'error');
-        return;
-    }
-
-    results.sort((a, b) => new Date(b.date) - new Date(a.date));
-    const result = results[0];
-
-    const confirmation = await Swal.fire({
-        title: 'Hapus Nilai Raport?',
-        text: `Anda akan menghapus nilai "${mapel}" untuk siswa ini. Tindakan ini tidak dapat dibatalkan.`,
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonColor: '#ef4444',
-        cancelButtonColor: '#94a3b8',
-        confirmButtonText: 'Ya, Hapus!',
-        cancelButtonText: 'Batal'
-    });
-
-    if (confirmation.isConfirmed) {
-        const idx = db.results.indexOf(result);
-        db.results[idx].deleted = true;
-        db.results[idx].updatedAt = Date.now();
-        
-        await save();
-        renderRaport();
-        
-        Swal.fire({
-            icon: 'success',
-            title: 'Data dihapus',
-            toast: true,
-            position: 'top-end',
-            showConfirmButton: false,
-            timer: 2000
-        });
-    }
-}
-
-// --- KISI-KISI AI FUNCTIONALITY ---
-
-
-
-
-
-
-
-
-
-
-// Toggle dropdown functions
-
-
-// --- API KEY MANAGEMENT FUNCTIONS ---
-
-
-// ─── Real-time API Keys Stats Polling ─────────────────────────────
-
-
-// ─── Live Progress Polling ─────────────────────────────────────────
-
-
-
-
-
-
-
-// Make function globally accessible
-function removeTeacherAPIKey(index) { console.warn('removeTeacherAPIKey is not fully implemented in this module'); }
-window.removeTeacherAPIKey = removeTeacherAPIKey;
-
-// Stub helper functions for API key management
-function toggleGlobalAPIKeysList() { console.warn('toggleGlobalAPIKeysList is not fully implemented in this module'); }
-
-// Make function globally accessible
-window.toggleGlobalAPIKeysList = toggleGlobalAPIKeysList;
-
-
-
-window.addGlobalApiKey = async function () {
-    const apiKey = document.getElementById('new-api-key').value.trim();
-    if (!apiKey) return showToast('API Key harus diisi', 'error');
-
-    // Auto-detect provider based on API key format
-    let detectedProvider = 'OpenAI'; // Default fallback
-    if (apiKey.startsWith('AIzaSy')) {
-        detectedProvider = 'Gemini';
-    } else if (apiKey.startsWith('sk-')) {
-        detectedProvider = 'OpenAI';
-    } else if (apiKey.startsWith('sk-or-v1-') || apiKey.startsWith('sk-or-')) {
-        detectedProvider = 'OpenRouter';
-    } else if (apiKey.startsWith('gsk_')) {
-        detectedProvider = 'Groq';
-    } else if (apiKey.startsWith('sk-') && apiKey.includes('deepseek')) {
-        detectedProvider = 'DeepSeek';
-    }
-
-    try {
-        const response = await fetch(getApiBaseUrl() + '/api/admin/add-global-key', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ provider: detectedProvider, apiKey, note: '' })
-        });
-
-        const result = await response.json();
-
-        if (result.ok) {
-            showToast(`Global API Key berhasil ditambahkan (${detectedProvider})`, 'success');
-            document.getElementById('new-api-key').value = '';
-            renderApiKeysList(); // Refresh list
-            updateStats(); // Update stats
-        } else {
-            showToast(result.error || 'Gagal menambahkan key', 'error');
-        }
-    } catch (err) {
-        showToast('Error: ' + err.message, 'error');
-    }
-};
-
-// --- INIT ---
-window.addEventListener('load', async () => {
-    // Fallback: Hide loading overlay after 3 seconds regardless
-    setTimeout(() => {
-        const overlay = document.getElementById('loading-overlay');
-        if (overlay && !overlay.classList.contains('hidden')) {
-            overlay.classList.add('hidden');
-            overlay.classList.remove('flex');
-        }
-    }, 2000);
+window.save = save;
+
+// --- AUTO INITIALIZE ON DOM LOAD ---
+const startAppInitialization = async () => {
+    // Safety fallback timer: guarantee overlay removal after max 2.5s regardless of init progress
+    const safetyTimer = setTimeout(() => {
+        hideLoadingOverlay();
+    }, 2500);
 
     try {
         await init();
-        console.log('App initialized, db has', db.students ? db.students.length : 0, 'students');
-        const typeSel = document.getElementById('q-type');
-        if (typeSel && typeof onQuestionTypeChange === 'function') typeSel.addEventListener('change', onQuestionTypeChange);
-
-        // Close import/export dropdowns when clicking outside their controls
-        document.addEventListener('click', (e) => {
-            const importDropdown = document.getElementById('import-dropdown');
-            const exportDropdown = document.getElementById('export-dropdown');
-
-            if (!importDropdown || !exportDropdown) return;
-
-            const clickedImportToggle = e.target.closest('[onclick="toggleImportDropdown()"]');
-            const clickedExportToggle = e.target.closest('[onclick="toggleExportDropdown()"]');
-            const clickedImportDropdown = e.target.closest('#import-dropdown');
-            const clickedExportDropdown = e.target.closest('#export-dropdown');
-
-            if (!clickedImportToggle && !clickedExportToggle && !clickedImportDropdown && !clickedExportDropdown) {
-                importDropdown.classList.add('hidden');
-                exportDropdown.classList.add('hidden');
-            }
-        });
-
-        // Handle hash-based tab switching for guru.html
-        if (window.location.pathname.endsWith('guru.html') && window.location.hash) {
-            const tabName = window.location.hash.substring(1);
-            if (typeof switchTeacherTab === 'function') {
-                setTimeout(() => switchTeacherTab(tabName), 500);
-            }
-        }
-
-        // Hide loading overlay after initialization
-        const overlay = document.getElementById('loading-overlay');
-        if (overlay) {
-            overlay.classList.add('hidden');
-            overlay.classList.remove('flex');
-        }
-    } catch (error) {
-        console.error('Initialization error:', error);
-        // Hide loading overlay even if init fails
-        const overlay = document.getElementById('loading-overlay');
-        if (overlay) {
-            overlay.classList.add('hidden');
-            overlay.classList.remove('flex');
-        }
+    } catch (err) {
+        console.error('[init] Initialization failed:', err);
+    } finally {
+        clearTimeout(safetyTimer);
+        hideLoadingOverlay();
     }
 
-    // Add keyboard support for zoom modal
-    document.addEventListener('keydown', function (e) {
-        const modal = document.getElementById('image-zoom-modal');
-        if (!modal || modal.classList.contains('hidden')) return;
+    // Question type change listener
+    const typeSel = document.getElementById('q-type');
+    if (typeSel && typeof onQuestionTypeChange === 'function') {
+        typeSel.addEventListener('change', onQuestionTypeChange);
+    }
 
-        if (e.key === 'Escape') {
-            if (typeof closeImageZoom === 'function') closeImageZoom();
-        } else if (e.key === 'ArrowRight') {
-            if (typeof nextZoomImage === 'function') nextZoomImage();
-            e.preventDefault();
-        } else if (e.key === 'ArrowLeft') {
-            if (typeof previousZoomImage === 'function') previousZoomImage();
-            e.preventDefault();
+    // Close import/export dropdowns when clicking outside
+    document.addEventListener('click', (e) => {
+        const importDropdown = document.getElementById('import-dropdown');
+        const exportDropdown = document.getElementById('export-dropdown');
+
+        if (!importDropdown || !exportDropdown) return;
+
+        const clickedImportToggle = e.target.closest('[onclick="toggleImportDropdown()"]');
+        const clickedExportToggle = e.target.closest('[onclick="toggleExportDropdown()"]');
+        const clickedImportDropdown = e.target.closest('#import-dropdown');
+        const clickedExportDropdown = e.target.closest('#export-dropdown');
+
+        if (!clickedImportToggle && !clickedExportToggle && !clickedImportDropdown && !clickedExportDropdown) {
+            importDropdown.classList.add('hidden');
+            exportDropdown.classList.add('hidden');
         }
     });
-});
 
+    // Handle hash-based tab switching for guru.html
+    if (window.location.pathname.endsWith('guru.html') && window.location.hash) {
+        const tabName = window.location.hash.substring(1);
+        if (typeof switchTeacherTab === 'function') {
+            setTimeout(() => switchTeacherTab(tabName), 500);
+        }
+    }
+};
 
-
+if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', startAppInitialization);
+} else {
+    startAppInitialization();
+}
 
 /* ==================== FILE: js/core/db-sync.js ==================== */
 /**
@@ -2368,9 +1051,50 @@ function normalizeDb(d, existing = {}) {
         normalizedStudents.unshift({ id: 'ADM', password: 'admin321', name: 'Administrator', role: 'admin' });
     }
 
+    // Safely merge subjects (union of server + local cache)
+    const getSubName = s => (typeof s === 'object' && s !== null ? s.name : s);
+    const serverSubjects = Array.isArray(d.subjects) ? d.subjects : [];
+    const localSubjects = Array.isArray(existing.subjects) ? existing.subjects : [];
+    const mergedSubjects = [];
+    const seenSubjects = new Set();
+
+    serverSubjects.forEach(s => {
+        const name = getSubName(s);
+        if (name && !seenSubjects.has(name)) {
+            seenSubjects.add(name);
+            mergedSubjects.push(s);
+        }
+    });
+    localSubjects.forEach(s => {
+        const name = getSubName(s);
+        if (name && !seenSubjects.has(name)) {
+            seenSubjects.add(name);
+            mergedSubjects.push(s);
+        }
+    });
+
+    // Safely merge rombels (union of server + local cache)
+    const serverRombels = Array.isArray(d.rombels) ? d.rombels : [];
+    const localRombels = Array.isArray(existing.rombels) ? existing.rombels : [];
+    const mergedRombels = [];
+    const seenRombels = new Set();
+
+    serverRombels.forEach(r => {
+        if (r && !seenRombels.has(r)) {
+            seenRombels.add(r);
+            mergedRombels.push(r);
+        }
+    });
+    localRombels.forEach(r => {
+        if (r && !seenRombels.has(r)) {
+            seenRombels.add(r);
+            mergedRombels.push(r);
+        }
+    });
+
     return {
-        subjects: Array.isArray(d.subjects) ? d.subjects : (existing.subjects || []),
-        rombels: Array.isArray(d.rombels) ? d.rombels : (existing.rombels || []),
+        subjects: mergedSubjects.length > 0 ? mergedSubjects : (Array.isArray(d.subjects) ? d.subjects : (existing.subjects || [])),
+        rombels: mergedRombels.length > 0 ? mergedRombels : (Array.isArray(d.rombels) ? d.rombels : (existing.rombels || [])),
         questions: Array.isArray(d.questions) ? d.questions : (existing.questions || []),
         quizzes: Array.isArray(d.quizzes) ? d.quizzes : (existing.quizzes || []),
         students: normalizedStudents,
@@ -2813,6 +1537,32 @@ function openConfigModal(type) {
     document.getElementById('config-modal').classList.replace('hidden', 'flex');
 }
 
+function saveConfig() {
+    const input = document.getElementById('config-input');
+    const val = input ? input.value.trim() : '';
+    if (!val) return;
+
+    if (!Array.isArray(db.subjects)) db.subjects = [];
+    if (!Array.isArray(db.rombels)) db.rombels = [];
+
+    if (currentConfigType === 'mapel') {
+        const exists = db.subjects.some(s => (typeof s === 'object' && s !== null ? s.name : s) === val);
+        if (!exists) {
+            db.subjects.push({ name: val, locked: false });
+        }
+    } else {
+        if (!db.rombels.includes(val)) {
+            db.rombels.push(val);
+        }
+    }
+
+    save({ forceServerSave: true });
+    if (input) input.value = '';
+    closeModals();
+    if (typeof renderRombelSection === 'function') renderRombelSection();
+    if (typeof showAdminSection === 'function') showAdminSection('rombel');
+}
+
 function exportDatabase() {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(db));
     const dl = document.createElement('a');
@@ -3216,6 +1966,16 @@ function normalizeHtmlImages(html) {
         return `<img${before}src="${normalized}"`;
     });
 }
+
+function getTypeLabel(type) {
+    if (type === 'single') return 'Pilihan ganda';
+    if (type === 'multiple') return 'Pilihan ganda (Kompleks)';
+    if (type === 'text') return 'Uraian';
+    if (type === 'tf') return 'Benar / Salah';
+    if (type === 'matching') return 'Menjodohkan';
+    return type || 'Pilihan ganda';
+}
+window.getTypeLabel = getTypeLabel;
 
 async function updateStats() {
     const subjects = Array.isArray(db?.subjects) ? db.subjects : [];
@@ -4163,43 +2923,7 @@ function deleteQuestion(idx) {
 }
 
 
-function exportQuestions() {
-    let questionsToExport = [];
-    if (window.isTeacherMode || (currentSiswa && currentSiswa.role === 'teacher')) {
-        // Konteks guru: export sesuai filter yang aktif dan hanya soal milik guru tersebut
-        const fM = document.getElementById('teacher-filter-mapel')?.value || '';
-        const fR = document.getElementById('teacher-filter-rombel')?.value || '';
-        questionsToExport = db.questions.filter(q => {
-            const qSubject = typeof q.mapel === 'string' ? q.mapel : q.mapel?.name || q.mapel;
-            if (!teacherSubjectNames(currentSiswa).includes(qSubject)) return false;
-            const allowed = teacherAllowedRombels(currentSiswa, qSubject);
-            if (!allowed.includes(q.rombel)) return false;
-            if (fM && qSubject !== fM) return false;
-            if (fR && q.rombel !== fR) return false;
-            return true;
-        });
-    } else {
-        // Konteks admin: export sesuai filter admin
-        const fR = document.getElementById('filter-rombel').value;
-        const fM = document.getElementById('filter-mapel').value;
-        questionsToExport = db.questions.filter(q =>
-            (fR === 'ALL' || q.rombel === fR) && (fM === 'ALL' || q.mapel === fM)
-        );
-    }
 
-    if (questionsToExport.length === 0) {
-        alert('Tidak ada soal yang bisa diexport berdasarkan filter saat ini.');
-        return;
-    }
-
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(questionsToExport, null, 2));
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", `soal_cbt_export_${new Date().getTime()}.json`);
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
-}
 
 function moveQuestionUp(idx) {
     if (idx > 0) {
@@ -4278,8 +3002,21 @@ examData = { mapel: "", questions: [], currentIdx: 0, answers: [], ragu: [], tim
 
 async function startExam(mapel) {
     console.log('[startExam] Starting for mapel:', mapel, 'student:', currentSiswa?.id);
-    const qs = db.questions.filter(q => q.mapel === mapel && q.rombel === currentSiswa.rombel);
+    if (!currentSiswa || currentSiswa.role !== 'student') {
+        alert('Sesi siswa tidak valid. Silakan login ulang.');
+        return;
+    }
+    if (!mapel) {
+        alert('Mapel tidak valid.');
+        return;
+    }
+
+    const qs = (db.questions || []).filter(q => q && q.mapel === mapel && q.rombel === currentSiswa.rombel);
     console.log('[startExam] Questions found for mapel:', qs.length);
+    if (!qs.length) {
+        alert(`Belum ada soal untuk mapel "${mapel}" di rombel ${currentSiswa.rombel}.`);
+        return;
+    }
 
     console.log('[startExam] Checking for saved progress...');
     const saved = await getSavedStudentExamProgress(mapel);
@@ -4328,7 +3065,7 @@ async function startExam(mapel) {
         if (q.type === 'matching') return [];
         return null; // default single-choice
     });
-    const ragu = normalizedQuestions.map(_ => false);
+    const ragu = normalizedQuestions.map(() => false);
     examData = { mapel, questions: normalizedQuestions, currentIdx: 0, answers, ragu };
 
     // Tampilkan petunjuk ujian untuk siswa
@@ -4343,11 +3080,15 @@ async function startExam(mapel) {
     if (typeof requestFullscreen === 'function') {
         requestFullscreen();
     }
-    document.getElementById('cheat-mask').classList.add('hidden');
+    const cheatMask = document.getElementById('cheat-mask');
+    if (cheatMask) cheatMask.classList.add('hidden');
 
-    document.getElementById('student-exam-list').classList.add('hidden');
-    document.getElementById('exam-screen').classList.remove('hidden');
-    document.getElementById('exam-meta').innerText = `${mapel} | ${currentSiswa.rombel}`;
+    const studentList = document.getElementById('student-exam-list');
+    const examScreen = document.getElementById('exam-screen');
+    if (studentList) studentList.classList.add('hidden');
+    if (examScreen) examScreen.classList.remove('hidden');
+    const meta = document.getElementById('exam-meta');
+    if (meta) meta.innerText = `${mapel} | ${currentSiswa.rombel}`;
 
     showQuestion(0);
     updateQuestionStatus();
@@ -4355,11 +3096,10 @@ async function startExam(mapel) {
     updateLiveExamStatus(true);
     if (liveExamInterval) clearInterval(liveExamInterval);
     liveExamInterval = setInterval(() => updateLiveExamStatus(true), 1000);
-    console.log('[Student] Started live exam interval for:', mapel, 'studentId:', currentSiswa.id);
 
     const timeLimits = db.timeLimits || {};
     const key = `${currentSiswa.rombel}|${mapel}`.toLowerCase().trim();
-    const timeLimit = timeLimits[key] || 60; // default 60 menit agar sama dengan admin
+    const timeLimit = timeLimits[key] || 60;
     examSecondsRemaining = timeLimit * 60;
     examData.totalSeconds = examSecondsRemaining;
     console.log('Starting exam for', key, 'timeLimit:', timeLimit, 'timeLimits:', timeLimits);
@@ -4568,6 +3308,68 @@ function showQuestion(idx) {
     document.getElementById('btn-prev').disabled = idx === 0;
     document.getElementById('btn-next').classList.toggle('hidden', idx === examData.questions.length - 1);
     document.getElementById('btn-finish').classList.toggle('hidden', idx !== examData.questions.length - 1);
+}
+
+function setAnswer(i) {
+    const q = examData.questions[examData.currentIdx];
+    if (q.type === 'multiple') {
+        let arr = examData.answers[examData.currentIdx] || [];
+        const idx = arr.indexOf(i);
+        if (idx === -1) arr.push(i);
+        else arr.splice(idx, 1);
+        examData.answers[examData.currentIdx] = arr;
+    } else {
+        examData.answers[examData.currentIdx] = i;
+    }
+    saveStudentExamProgress();
+    showQuestion(examData.currentIdx);
+}
+
+function toggleAnswer(i) { setAnswer(i); }
+
+function setAnswerText(val) {
+    examData.answers[examData.currentIdx] = val;
+    saveStudentExamProgress();
+    updateQuestionStatus();
+    updateProgress();
+}
+
+function setAnswerTF(stmtIdx, boolVal) {
+    const idx = examData.currentIdx;
+    const ansArr = examData.answers[idx] || [];
+    ansArr[stmtIdx] = boolVal;
+    examData.answers[idx] = ansArr;
+    saveStudentExamProgress();
+    showQuestion(idx);
+}
+
+function setMatchingAnswer(qIdx, aIdx) {
+    const idx = examData.currentIdx;
+    const ansArr = examData.answers[idx] || [];
+    ansArr[qIdx] = aIdx === "" ? null : parseInt(aIdx);
+    examData.answers[idx] = ansArr;
+    saveStudentExamProgress();
+    showQuestion(idx);
+}
+
+function navQ(dir) { showQuestion(examData.currentIdx + dir); }
+
+function toggleDoubt() {
+    const idx = examData.currentIdx;
+    examData.ragu[idx] = !examData.ragu[idx];
+    saveStudentExamProgress();
+    updateQuestionStatus();
+    updateDoubtBtn();
+}
+
+let statusShowAll = false; // show all questions when true
+const MAX_VISIBLE_STATUS = 8;
+
+function toggleStatusView() {
+    statusShowAll = !statusShowAll;
+    const btn = document.getElementById('toggle-status-btn');
+    if (btn) btn.innerText = statusShowAll ? '(Tutup)' : '(Lihat semua)';
+    updateQuestionStatus();
 }
 
 function updateQuestionStatus() {
@@ -5201,7 +4003,7 @@ async function submitExam() {
     const newEntry = {
         studentId: currentSiswa.id,
         studentName: currentSiswa.name,
-        rombel: currentSiswa.rombel,
+        rombel: examData.rombel,
         mapel: examData.mapel,
         score: score,
         date: new Date().toISOString(),
@@ -5401,13 +4203,10 @@ async function generateQuestionsWithAi() {
     }
 }
 
-
-
 async function renderStudentExamList() {
     const container = document.getElementById('student-exam-list');
     if (!container) return;
 
-    // Ensure core data is loaded for the student view (force load results for freshness)
     if (typeof ensureDataLoaded === 'function') {
         await ensureDataLoaded('questions');
         await ensureDataLoaded('results', true);
@@ -5489,73 +4288,49 @@ function closeStudentInstructionModal() {
     }
 }
 
-function loadStudentExamProgress() {
-    try {
-        const saved = localStorage.getItem(STUDENT_EXAM_PROGRESS_KEY);
-        return saved ? JSON.parse(saved) : null;
-    } catch (e) {
-        console.warn('[loadStudentExamProgress] Failed to load saved student exam progress:', e.message);
-        return null;
-    }
-}
+// Restore the missing student exam checkpoint helpers so the exam start flow can resume, save, and restore progress without throwing ReferenceErrors.
+
+examData = { mapel: "", questions: [], currentIdx: 0, answers: [], ragu: [], timer: null };
 
 function saveStudentExamProgress() {
     if (!currentSiswa || currentSiswa.role !== 'student' || !examData || !examData.mapel) return;
-    let checkpoint = null;
 
-    if (examData.adminSavedProgress && examData.adminSavedProgress.answers) {
-        checkpoint = {
-            studentId: currentSiswa.id,
-            studentName: currentSiswa.name,
-            rombel: currentSiswa.rombel,
-            mapel: examData.mapel,
-            currentIdx: examData.adminSavedProgress.currentIdx,
-            answers: examData.adminSavedProgress.answers,
-            ragu: examData.adminSavedProgress.ragu || [],
-            totalSeconds: examData.adminSavedProgress.totalSeconds || 0,
-            remainingSeconds: examData.adminSavedProgress.remainingSeconds || 0,
-            savedAt: examData.adminSavedProgress.savedAt || Date.now(),
-            savedByAdminCommand: true,
-            adminSaveConfirmed: true,
-            adminSavedProgress: examData.adminSavedProgress
-        };
-    } else if (examData.savedByAdminCommand && examData.answers) {
-        checkpoint = {
-            studentId: currentSiswa.id,
-            studentName: currentSiswa.name,
-            rombel: currentSiswa.rombel,
-            mapel: examData.mapel,
-            currentIdx: examData.currentIdx,
-            answers: examData.answers,
-            ragu: examData.ragu || [],
-            totalSeconds: examData.totalSeconds || examSecondsRemaining || 0,
-            remainingSeconds: examSecondsRemaining,
-            savedAt: Date.now(),
-            savedByAdminCommand: true,
-            adminSaveConfirmed: true
-        };
-    } else {
-        return;
-    }
+    const checkpoint = {
+        studentId: currentSiswa.id,
+        studentName: currentSiswa.name,
+        rombel: currentSiswa.rombel,
+        mapel: examData.mapel,
+        currentIdx: examData.currentIdx,
+        answers: Array.isArray(examData.answers) ? examData.answers.slice() : [],
+        ragu: Array.isArray(examData.ragu) ? examData.ragu.slice() : [],
+        remainingSeconds: examSecondsRemaining,
+        totalSeconds: examData.totalSeconds || 0,
+        savedAt: Date.now(),
+        savedByAdminCommand: false,
+        adminSaveConfirmed: false
+    };
 
-    if (!checkpoint) return;
     try {
+        localStorage.setItem(STUDENT_EXAM_PROGRESS_KEY, JSON.stringify(checkpoint));
         localStorage.setItem(STUDENT_ADMIN_SAVED_PROGRESS_KEY, JSON.stringify(checkpoint));
         console.log('[saveStudentExamProgress] ✅ Checkpoint saved:', { currentIdx: checkpoint.currentIdx, answersCount: checkpoint.answers.length });
     } catch (e) {
         console.warn('[saveStudentExamProgress] Failed to persist admin checkpoint:', e.message);
     }
 }
+window.saveStudentExamProgress = saveStudentExamProgress;
 
 function loadAdminSavedProgress() {
     try {
-        const saved = localStorage.getItem(STUDENT_ADMIN_SAVED_PROGRESS_KEY);
-        return saved ? JSON.parse(saved) : null;
+        const raw = localStorage.getItem(STUDENT_ADMIN_SAVED_PROGRESS_KEY);
+        if (!raw) return null;
+        return JSON.parse(raw);
     } catch (e) {
         console.warn('[loadAdminSavedProgress] Failed to load admin saved progress:', e.message);
         return null;
     }
 }
+window.loadAdminSavedProgress = loadAdminSavedProgress;
 
 function clearStudentExamProgress() {
     try {
@@ -5565,6 +4340,7 @@ function clearStudentExamProgress() {
         console.warn('[clearStudentExamProgress] Failed to clear exam progress:', e.message);
     }
 }
+window.clearStudentExamProgress = clearStudentExamProgress;
 
 async function getSavedStudentExamProgress(mapel = null) {
     const matchSaved = saved => {
@@ -5576,6 +4352,17 @@ async function getSavedStudentExamProgress(mapel = null) {
         const mapelMatch = !mapel || norm(saved.mapel) === norm(mapel);
 
         if (!idMatch || !rombelMatch || !mapelMatch) return false;
+
+        // Check if student has ALREADY completed this exam result in db.results
+        const alreadyDone = (db.results || []).some(r => {
+            if (!r || r.deleted) return false;
+            return norm(r.studentId || r.student_id) === norm(currentSiswa.id) && norm(r.mapel) === norm(saved.mapel);
+        });
+        if (alreadyDone) {
+            console.log('[matchSaved] Student has already completed exam for mapel:', saved.mapel, ', ignoring checkpoint.');
+            return false;
+        }
+
         if (!saved.savedByAdminCommand && !saved.adminSaveConfirmed) return false;
 
         const hasAnswers = saved.answers.length > 0;
@@ -5613,7 +4400,11 @@ async function getSavedStudentExamProgress(mapel = null) {
                                 savedByAdminCommand: true,
                                 adminSaveConfirmed: true
                             };
-                            return saved;
+                            if (matchSaved(saved)) {
+                                return saved;
+                            } else {
+                                console.log('[getSavedStudentExamProgress] Server checkpoint ignored by matchSaved (e.g. already done or invalid).');
+                            }
                         } else {
                             console.log('[getSavedStudentExamProgress] 🗑️ Server has no checkpoint. Clearing local cache for consistency.');
                             clearStudentExamProgress();
@@ -5638,6 +4429,7 @@ async function getSavedStudentExamProgress(mapel = null) {
     console.log('[getSavedStudentExamProgress] ❌ No saved progress found anywhere');
     return null;
 }
+window.getSavedStudentExamProgress = getSavedStudentExamProgress;
 
 async function resumeStudentExam(saved) {
     if (!saved || !saved.mapel || !Array.isArray(saved.answers)) return false;
@@ -5736,6 +4528,7 @@ async function resumeStudentExam(saved) {
     saveStudentExamProgress();
     return true;
 }
+window.resumeStudentExam = resumeStudentExam;
 
 async function restoreStudentExamProgress() {
     console.log('[restoreStudentExamProgress] START - Checking for saved exam data...');
@@ -5755,6 +4548,7 @@ async function restoreStudentExamProgress() {
     console.log('[restoreStudentExamProgress] ✅ Found saved data, resuming exam...');
     return await resumeStudentExam(saved);
 }
+window.restoreStudentExamProgress = restoreStudentExamProgress;
 
 async function processAdminCommandsOnStudent(liveExams) {
     if (!currentSiswa || currentSiswa.role !== 'student' || !examData || !examData.mapel) return;
@@ -5824,7 +4618,16 @@ async function processAdminCommandsOnStudent(liveExams) {
             if (typeof showToast === 'function') showToast('⚠️ Admin telah mengosongkan jawaban Anda.', 'warning');
         }
     }
+
+    if (updated && typeof saveLocalDb === 'function') {
+        try {
+            await saveLocalDb();
+        } catch (err) {
+            console.warn('[processAdminCommandsOnStudent] failed to save local DB:', err.message || err);
+        }
+    }
 }
+window.processAdminCommandsOnStudent = processAdminCommandsOnStudent;
 
 
 
@@ -7342,6 +6145,203 @@ function exportQuestionsExcel() {
     XLSX.writeFile(workbook, `soal_cbt_export_${new Date().getTime()}.xlsx`);
 }
 
+function exportQuestionsWord() {
+    let questionsToExport = [];
+    const isTeacher = window.isTeacherMode || (typeof currentSiswa !== 'undefined' && currentSiswa && currentSiswa.role === 'teacher');
+    let mapelInfo = 'Semua Mapel';
+    let rombelInfo = 'Semua Rombel';
+
+    if (isTeacher) {
+        const fM = document.getElementById('teacher-filter-mapel')?.value || '';
+        const fR = document.getElementById('teacher-filter-rombel')?.value || '';
+        if (fM) mapelInfo = fM;
+        if (fR) rombelInfo = fR;
+
+        questionsToExport = db.questions.filter(q => {
+            const qSubject = typeof q.mapel === 'string' ? q.mapel : q.mapel?.name || q.mapel;
+            if (typeof teacherSubjectNames === 'function' && !teacherSubjectNames(currentSiswa).includes(qSubject)) return false;
+            if (typeof teacherAllowedRombels === 'function') {
+                const allowed = teacherAllowedRombels(currentSiswa, qSubject);
+                if (!allowed.includes(q.rombel)) return false;
+            }
+            if (fM && qSubject !== fM) return false;
+            if (fR && q.rombel !== fR) return false;
+            return true;
+        });
+    } else {
+        const fR = document.getElementById('filter-rombel')?.value || 'ALL';
+        const fM = document.getElementById('filter-mapel')?.value || 'ALL';
+        if (fM !== 'ALL') mapelInfo = fM;
+        if (fR !== 'ALL') rombelInfo = fR;
+
+        questionsToExport = db.questions.filter(q =>
+            (fR === 'ALL' || q.rombel === fR) && (fM === 'ALL' || q.mapel === fM)
+        );
+    }
+
+    if (questionsToExport.length === 0) {
+        alert('Tidak ada soal yang bisa diexport berdasarkan filter saat ini.');
+        return;
+    }
+
+    let htmlContent = `
+        <div style="font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: #1e293b;">
+            <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #0f172a; padding-bottom: 10px;">
+                <h2 style="margin: 0; font-size: 16pt; font-weight: bold; text-transform: uppercase;">BANK SOAL CBT</h2>
+                <p style="margin: 5px 0 0 0; font-size: 11pt; font-weight: bold;">Mata Pelajaran: ${mapelInfo} &nbsp;|&nbsp; Rombel: ${rombelInfo}</p>
+                <p style="margin: 2px 0 0 0; font-size: 9pt; color: #64748b;">Jumlah Soal: ${questionsToExport.length} &nbsp;|&nbsp; Tanggal Export: ${new Date().toLocaleDateString('id-ID')}</p>
+            </div>
+    `;
+
+    questionsToExport.forEach((q, idx) => {
+        const qNum = idx + 1;
+        const qType = q.type || 'single';
+        let typeLabel = 'Pilihan Ganda';
+        if (qType === 'multiple') typeLabel = 'Pilihan Ganda Kompleks';
+        else if (qType === 'tf') typeLabel = 'Benar / Salah';
+        else if (qType === 'matching') typeLabel = 'Menjodohkan';
+        else if (qType === 'text') typeLabel = 'Isian / Uraian';
+
+        htmlContent += `
+            <div style="margin-bottom: 18px; page-break-inside: avoid;">
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 6px;">
+                    <tr>
+                        <td style="vertical-align: top; width: 30px; font-weight: bold;">${qNum}.</td>
+                        <td style="vertical-align: top;">
+                            <div style="font-weight: bold; margin-bottom: 4px;">${q.text || ''}</div>
+                            <span style="font-size: 8pt; background-color: #f1f5f9; padding: 2px 6px; border-radius: 4px; color: #475569;">[${typeLabel}] Mapel: ${q.mapel || '-'} | Rombel: ${q.rombel || '-'}</span>
+                        </td>
+                    </tr>
+                </table>
+        `;
+
+        if (q.images && Array.isArray(q.images) && q.images.length > 0) {
+            htmlContent += `<div style="margin-left: 30px; margin-bottom: 8px;">`;
+            q.images.forEach(img => {
+                const imgSrc = typeof img === 'string' ? img : (img.data || '');
+                if (imgSrc) htmlContent += `<img src="${imgSrc}" style="max-width: 300px; max-height: 200px; margin-right: 10px; margin-bottom: 5px; border: 1px solid #ccc;" /><br/>`;
+            });
+            htmlContent += `</div>`;
+        } else if (q.image) {
+            const imgSrc = typeof q.image === 'string' ? q.image : (q.image.data || '');
+            if (imgSrc) {
+                htmlContent += `<div style="margin-left: 30px; margin-bottom: 8px;"><img src="${imgSrc}" style="max-width: 300px; max-height: 200px; border: 1px solid #ccc;" /></div>`;
+            }
+        }
+
+        htmlContent += `<div style="margin-left: 30px; margin-top: 6px;">`;
+
+        if (qType === 'single' || qType === 'multiple') {
+            const options = Array.isArray(q.options) ? q.options : [];
+            options.forEach((opt, optIdx) => {
+                const label = String.fromCharCode(65 + optIdx);
+                htmlContent += `<div style="margin-bottom: 4px;"><strong>${label}.</strong> ${opt}</div>`;
+            });
+
+            let keyStr = '-';
+            if (qType === 'single') {
+                const cIdx = typeof q.correct === 'number' ? q.correct : parseInt(q.correct);
+                if (!isNaN(cIdx) && cIdx >= 0 && cIdx < 26) keyStr = String.fromCharCode(65 + cIdx);
+            } else {
+                if (Array.isArray(q.correct)) {
+                    keyStr = q.correct.map(i => String.fromCharCode(65 + i)).join(', ');
+                }
+            }
+            htmlContent += `<div style="margin-top: 6px; font-weight: bold; color: #0284c7; font-size: 9.5pt;">Kunci Jawaban: ${keyStr}</div>`;
+
+        } else if (qType === 'tf') {
+            const stmts = Array.isArray(q.options) ? q.options : [];
+            const corrects = Array.isArray(q.correct) ? q.correct : [];
+            htmlContent += `<table style="width: 100%; border-collapse: collapse; margin-top: 4px; border: 1px solid #cbd5e1;" border="1" cellpadding="5">
+                <tr style="background-color: #f8fafc; font-weight: bold; text-align: left;">
+                    <th style="border: 1px solid #cbd5e1; width: 40px; text-align: center;">No</th>
+                    <th style="border: 1px solid #cbd5e1;">Pernyataan</th>
+                    <th style="border: 1px solid #cbd5e1; width: 100px; text-align: center;">Kunci</th>
+                </tr>`;
+            stmts.forEach((stmt, sIdx) => {
+                const isTrue = corrects[sIdx] === true || corrects[sIdx] === 'true' || corrects[sIdx] === 1;
+                htmlContent += `<tr>
+                    <td style="border: 1px solid #cbd5e1; text-align: center;">${sIdx + 1}</td>
+                    <td style="border: 1px solid #cbd5e1;">${stmt}</td>
+                    <td style="border: 1px solid #cbd5e1; text-align: center; font-weight: bold; color: ${isTrue ? '#16a34a' : '#dc2626'};">${isTrue ? 'BENAR' : 'SALAH'}</td>
+                </tr>`;
+            });
+            htmlContent += `</table>`;
+
+        } else if (qType === 'matching') {
+            const questions = Array.isArray(q.questions) ? q.questions : [];
+            const answers = Array.isArray(q.answers) ? q.answers : [];
+            htmlContent += `<table style="width: 100%; border-collapse: collapse; margin-top: 4px; border: 1px solid #cbd5e1;" border="1" cellpadding="5">
+                <tr style="background-color: #f8fafc; font-weight: bold;">
+                    <th style="border: 1px solid #cbd5e1; width: 40px; text-align: center;">No</th>
+                    <th style="border: 1px solid #cbd5e1; width: 45%;">Pertanyaan / Pernyataan</th>
+                    <th style="border: 1px solid #cbd5e1; width: 45%;">Pasangan Jawaban</th>
+                </tr>`;
+            questions.forEach((quest, qIdx) => {
+                const ans = answers[qIdx] || '-';
+                htmlContent += `<tr>
+                    <td style="border: 1px solid #cbd5e1; text-align: center;">${qIdx + 1}</td>
+                    <td style="border: 1px solid #cbd5e1;">${quest}</td>
+                    <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #0284c7;">${ans}</td>
+                </tr>`;
+            });
+            htmlContent += `</table>`;
+
+        } else if (qType === 'text') {
+            const keyStr = q.correct != null ? q.correct : '-';
+            htmlContent += `<div style="margin-top: 6px; font-weight: bold; color: #0284c7; font-size: 9.5pt;">Kunci Jawaban / Kata Kunci: ${keyStr}</div>`;
+        }
+
+        htmlContent += `</div></div><hr style="border: none; border-top: 1px dashed #cbd5e1; margin: 12px 0;" />`;
+    });
+
+    htmlContent += `</div>`;
+
+    const sanitizedMapel = mapelInfo.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sanitizedRombel = rombelInfo.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const timestamp = new Date().getTime();
+    const filename = `BankSoal_${sanitizedMapel}_${sanitizedRombel}_${timestamp}`;
+
+    // 1. Primary Method: Convert using htmlDocx library to true OpenXML .docx
+    if (typeof htmlDocx !== 'undefined' && typeof htmlDocx.asBlob === 'function') {
+        const fullDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Bank Soal CBT</title></head><body>${htmlContent}</body></html>`;
+        const blob = htmlDocx.asBlob(fullDoc, {
+            orientation: 'portrait',
+            margins: { top: 720, right: 720, bottom: 720, left: 720 }
+        });
+        const fileDownload = document.createElement("a");
+        document.body.appendChild(fileDownload);
+        const downloadUrl = URL.createObjectURL(blob);
+        fileDownload.href = downloadUrl;
+        fileDownload.download = `${filename}.docx`;
+        fileDownload.click();
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 100);
+        document.body.removeChild(fileDownload);
+        return;
+    }
+
+    // 2. Fallback Method: HTML Blob with UTF-8 BOM saved as .doc (natively opened by MS Word & WPS)
+    const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' " +
+        "xmlns:w='urn:schemas-microsoft-com:office:word' " +
+        "xmlns='http://www.w3.org/TR/REC-html40'>" +
+        "<head><meta charset='utf-8'><title>Bank Soal CBT</title>" +
+        "<style>body { font-family: Arial, sans-serif; font-size: 11pt; }</style>" +
+        "</head><body>";
+    const footer = "</body></html>";
+    const sourceHTML = header + htmlContent + footer;
+
+    const blob = new Blob(['\ufeff' + sourceHTML], { type: 'application/msword;charset=utf-8' });
+    const fileDownload = document.createElement("a");
+    document.body.appendChild(fileDownload);
+    const downloadUrl = URL.createObjectURL(blob);
+    fileDownload.href = downloadUrl;
+    fileDownload.download = `${filename}.doc`;
+    fileDownload.click();
+    setTimeout(() => URL.revokeObjectURL(downloadUrl), 100);
+    document.body.removeChild(fileDownload);
+}
+window.exportQuestionsWord = exportQuestionsWord;
+
 function importQuestionsExcel() {
     const input = document.createElement('input');
     input.type = 'file';
@@ -7436,7 +6436,11 @@ function importQuestionsExcel() {
 }
 
 async function openImportModal() {
-    populateSelects(['import-mapel', 'import-rombel']);
+    if (typeof populateSelects === 'function') {
+        populateSelects(['import-mapel', 'import-rombel']);
+    } else if (typeof window.populateSelects === 'function') {
+        window.populateSelects(['import-mapel', 'import-rombel']);
+    }
     if (window.isTeacherMode) {
         const mapelSelect = document.getElementById('import-mapel');
         const teacherSubjects = teacherSubjectNames(currentSiswa);
