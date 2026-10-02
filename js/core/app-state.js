@@ -785,3 +785,104 @@ window.addEventListener('load', async () => {
         }
     }
 });
+
+function setAnswer(i) {
+    const q = examData.questions[examData.currentIdx];
+    if (q.type === 'multiple') {
+        let arr = examData.answers[examData.currentIdx] || [];
+        const idx = arr.indexOf(i);
+        if (idx === -1) arr.push(i);
+        else arr.splice(idx, 1);
+        examData.answers[examData.currentIdx] = arr;
+    } else {
+        examData.answers[examData.currentIdx] = i;
+    }
+    saveStudentExamProgress();
+    showQuestion(examData.currentIdx);
+}
+window.setAnswer = setAnswer;
+
+function toggleAnswer(i) { setAnswer(i); }
+window.toggleAnswer = toggleAnswer;
+
+function setAnswerText(val) {
+    examData.answers[examData.currentIdx] = val;
+    saveStudentExamProgress();
+    updateQuestionStatus();
+    updateProgress();
+}
+window.setAnswerText = setAnswerText;
+
+function setAnswerTF(stmtIdx, boolVal) {
+    const idx = examData.currentIdx;
+    const ansArr = examData.answers[idx] || [];
+    ansArr[stmtIdx] = boolVal;
+    examData.answers[idx] = ansArr;
+    saveStudentExamProgress();
+    showQuestion(idx);
+}
+window.setAnswerTF = setAnswerTF;
+
+function setMatchingAnswer(qIdx, aIdx) {
+    const idx = examData.currentIdx;
+    const ansArr = examData.answers[idx] || [];
+    ansArr[qIdx] = aIdx === "" ? null : parseInt(aIdx);
+    examData.answers[idx] = ansArr;
+    saveStudentExamProgress();
+    showQuestion(idx);
+}
+window.setMatchingAnswer = setMatchingAnswer;
+
+function navQ(dir) { showQuestion(examData.currentIdx + dir); }
+window.navQ = navQ;
+
+let statusShowAll = false; // show all questions when true
+const MAX_VISIBLE_STATUS = 8;
+
+function toggleStatusView() {
+    statusShowAll = !statusShowAll;
+    const btn = document.getElementById('toggle-status-btn');
+    if (btn) btn.innerText = statusShowAll ? '(Tutup)' : '(Lihat semua)';
+    updateQuestionStatus();
+}
+window.toggleStatusView = toggleStatusView;
+
+function toggleDoubt() {
+    const idx = examData.currentIdx;
+    examData.ragu[idx] = !examData.ragu[idx];
+    saveStudentExamProgress();
+    updateQuestionStatus();
+    updateDoubtBtn();
+}
+window.toggleDoubt = toggleDoubt;
+
+let currentZoomImageIndex = 0;
+window.currentZoomImageIndex = currentZoomImageIndex;
+
+function openImageZoom(qIdx, imgIdx) {
+    try {
+        currentZoomQuestion = qIdx;
+        currentZoomImageIndex = imgIdx;
+        const q = examData.questions[qIdx];
+        if (!q) {
+            console.warn('Question not found at index:', qIdx);
+            return;
+        }
+        const images = getQuestionImageSources(q);
+
+        if (images.length > 0 && images[imgIdx]) {
+            const zoomModal = document.getElementById('image-zoom-modal');
+            if (zoomModal) {
+                const zoomImg = document.getElementById('zoom-image');
+                const zoomLabel = document.getElementById('zoom-image-label');
+                if (zoomImg) zoomImg.src = images[imgIdx];
+                if (zoomLabel) zoomLabel.textContent = `Gambar ${imgIdx + 1} / ${images.length}`;
+                zoomModal.classList.remove('hidden');
+                zoomModal.classList.add('flex');
+            }
+        }
+    } catch (err) {
+        console.warn('[openImageZoom] Error:', err.message || err);
+    }
+}
+window.openImageZoom = openImageZoom;
