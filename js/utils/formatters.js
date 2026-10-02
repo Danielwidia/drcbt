@@ -59,6 +59,16 @@ function normalizeHtmlImages(html) {
     });
 }
 
+function getTypeLabel(type) {
+    if (type === 'single') return 'Pilihan ganda';
+    if (type === 'multiple') return 'Pilihan ganda (Kompleks)';
+    if (type === 'text') return 'Uraian';
+    if (type === 'tf') return 'Benar / Salah';
+    if (type === 'matching') return 'Menjodohkan';
+    return type || 'Pilihan ganda';
+}
+window.getTypeLabel = getTypeLabel;
+
 async function updateStats() {
     const subjects = Array.isArray(db?.subjects) ? db.subjects : [];
     const questions = Array.isArray(db?.questions) ? db.questions : [];
