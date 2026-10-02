@@ -952,6 +952,16 @@ function showQuestion(idx) {
     document.getElementById('btn-finish').classList.toggle('hidden', idx !== examData.questions.length - 1);
 }
 
+let statusShowAll = false; // show all questions when true
+const MAX_VISIBLE_STATUS = 8;
+
+function toggleStatusView() {
+    statusShowAll = !statusShowAll;
+    const btn = document.getElementById('toggle-status-btn');
+    if (btn) btn.innerText = statusShowAll ? '(Tutup)' : '(Lihat semua)';
+    updateQuestionStatus();
+}
+
 function updateQuestionStatus() {
     const statusContainer = document.getElementById('question-status');
 
