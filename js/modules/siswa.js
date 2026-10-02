@@ -1868,5 +1868,252 @@ function closeStudentInstructionModal() {
     }
 }
 
+// Restore the missing student exam checkpoint helpers so the exam start flow can resume, save, and restore progress without throwing ReferenceErrors.
+
+examData = { mapel: "", questions: [], currentIdx: 0, answers: [], ragu: [], timer: null };
+
+function saveStudentExamProgress() {
+    if (!currentSiswa || currentSiswa.role !== 'student' || !examData || !examData.mapel) return;
+
+    const checkpoint = {
+        studentId: currentSiswa.id,
+        studentName: currentSiswa.name,
+        rombel: currentSiswa.rombel,
+        mapel: examData.mapel,
+        currentIdx: examData.currentIdx,
+        answers: Array.isArray(examData.answers) ? examData.answers.slice() : [],
+        ragu: Array.isArray(examData.ragu) ? examData.ragu.slice() : [],
+        remainingSeconds: examSecondsRemaining,
+        totalSeconds: examData.totalSeconds || 0,
+        savedAt: Date.now(),
+        savedByAdminCommand: false,
+        adminSaveConfirmed: false
+    };
+
+    try {
+        localStorage.setItem(STUDENT_EXAM_PROGRESS_KEY, JSON.stringify(checkpoint));
+        localStorage.setItem(STUDENT_ADMIN_SAVED_PROGRESS_KEY, JSON.stringify(checkpoint));
+        console.log('[saveStudentExamProgress] ✅ Checkpoint saved:', { currentIdx: checkpoint.currentIdx, answersCount: checkpoint.answers.length });
+    } catch (e) {
+        console.warn('[saveStudentExamProgress] Failed to persist admin checkpoint:', e.message);
+    }
+}
+window.saveStudentExamProgress = saveStudentExamProgress;
+
+function loadAdminSavedProgress() {
+    try {
+        const raw = localStorage.getItem(STUDENT_ADMIN_SAVED_PROGRESS_KEY);
+        if (!raw) return null;
+        return JSON.parse(raw);
+    } catch (e) {
+        console.warn('[loadAdminSavedProgress] Failed to load admin saved progress:', e.message);
+        return null;
+    }
+}
+window.loadAdminSavedProgress = loadAdminSavedProgress;
+
+function clearStudentExamProgress() {
+    try {
+        localStorage.removeItem(STUDENT_EXAM_PROGRESS_KEY);
+        localStorage.removeItem(STUDENT_ADMIN_SAVED_PROGRESS_KEY);
+    } catch (e) {
+        console.warn('[clearStudentExamProgress] Failed to clear exam progress:', e.message);
+    }
+}
+window.clearStudentExamProgress = clearStudentExamProgress;
+
+async function getSavedStudentExamProgress(mapel = null) {
+    const matchSaved = saved => {
+        if (!saved || !saved.studentId || !saved.rombel || !saved.mapel || !Array.isArray(saved.answers)) return false;
+
+        const norm = v => String(v || '').trim().toLowerCase();
+        const idMatch = norm(saved.studentId) === norm(currentSiswa.id);
+        const rombelMatch = norm(saved.rombel) === norm(currentSiswa.rombel);
+        const mapelMatch = !mapel || norm(saved.mapel) === norm(mapel);
+
+        if (!idMatch || !rombelMatch || !mapelMatch) return false;
+        if (!saved.savedByAdminCommand && !saved.adminSaveConfirmed) return false;
+
+        const hasAnswers = saved.answers.length > 0;
+        if (!hasAnswers) {
+            console.log('[matchSaved] Checkpoint found but has 0 answers, ignoring.');
+            return false;
+        }
+        return true;
+    };
+
+    if (navigator.onLine && typeof fetchLiveExamsFromServer === 'function') {
+        try {
+            if (mapel) {
+                console.log('[getSavedStudentExamProgress] Checking server for checkpoint:', currentSiswa.id, 'mapel:', mapel);
+                try {
+                    const url = getApiBaseUrl() + `/api/saved-exam/${encodeURIComponent(currentSiswa.id)}/${encodeURIComponent(mapel)}?rombel=${encodeURIComponent(currentSiswa.rombel)}`;
+                    const res = await fetch(url);
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.ok && data.exam) {
+                            const exact = data.exam;
+                            console.log('[getSavedStudentExamProgress] ✅ Found server checkpoint');
+                            const saved = {
+                                studentId: exact.studentId,
+                                studentName: exact.studentName,
+                                rombel: exact.rombel,
+                                mapel: exact.mapel,
+                                currentIdx: Number.isInteger(exact.adminSavedProgress?.currentIdx) ? exact.adminSavedProgress.currentIdx : 0,
+                                answers: exact.adminSavedProgress?.answers || [],
+                                ragu: Array.isArray(exact.adminSavedProgress?.ragu) ? exact.adminSavedProgress.ragu : [],
+                                remainingSeconds: Number(exact.adminSavedProgress?.remainingSeconds) || Number(exact.adminSavedProgress?.timeRemaining) || 0,
+                                totalSeconds: Number(exact.adminSavedProgress?.totalSeconds) || 0,
+                                savedAt: exact.adminSavedProgress?.savedAt || Date.now(),
+                                source: 'server_checkpoint',
+                                savedByAdminCommand: true,
+                                adminSaveConfirmed: true
+                            };
+                            return saved;
+                        } else {
+                            console.log('[getSavedStudentExamProgress] 🗑️ Server has no checkpoint. Clearing local cache for consistency.');
+                            clearStudentExamProgress();
+                        }
+                    }
+                } catch (e2) {
+                    console.warn('[getSavedStudentExamProgress] Specific endpoint failed:', e2.message);
+                }
+            }
+        } catch (e) {
+            console.warn('[getSavedStudentExamProgress] Server check failed:', e.message);
+        }
+    }
+
+    const localSaved = loadAdminSavedProgress();
+    console.log('[getSavedStudentExamProgress] Local saved:', !!localSaved);
+    if (localSaved && matchSaved(localSaved)) {
+        console.log('[getSavedStudentExamProgress] ✅ Using local saved progress');
+        return { ...localSaved, source: 'localStorage' };
+    }
+
+    console.log('[getSavedStudentExamProgress] ❌ No saved progress found anywhere');
+    return null;
+}
+window.getSavedStudentExamProgress = getSavedStudentExamProgress;
+
+async function resumeStudentExam(saved) {
+    if (!saved || !saved.mapel || !Array.isArray(saved.answers)) return false;
+    console.log('[resumeStudentExam] Resuming exam from saved progress:', { mapel: saved.mapel, currentIdx: saved.currentIdx, answersCount: saved.answers.length, source: saved.source });
+
+    const questions = db.questions.filter(q => q.mapel === saved.mapel && q.rombel === currentSiswa.rombel);
+    if (!questions.length) {
+        console.warn('[resumeStudentExam] No questions found for mapel:', saved.mapel);
+        clearStudentExamProgress();
+        return false;
+    }
+
+    const normalizedQuestions = questions.map(q => ({ ...q, type: q.type || 'single' }));
+    const answers = saved.answers.slice(0, normalizedQuestions.length);
+    const ragu = Array.isArray(saved.ragu) ? saved.ragu : normalizedQuestions.map(() => false);
+
+    const timeLimits = db.timeLimits || {};
+    const key = `${currentSiswa.rombel}|${saved.mapel}`.toLowerCase().trim();
+    const totalSeconds = (timeLimits[key] || 60) * 60;
+    let remainingSeconds = Number(saved.remainingSeconds) || Number(saved.timeRemaining) || totalSeconds;
+    if (remainingSeconds <= 0) remainingSeconds = totalSeconds;
+
+    examData = {
+        mapel: saved.mapel,
+        questions: normalizedQuestions,
+        currentIdx: Number.isInteger(saved.currentIdx) ? saved.currentIdx : 0,
+        answers,
+        ragu,
+        timer: null,
+        totalSeconds,
+    };
+
+    if (typeof showToast === 'function') {
+        showToast(`✅ Progres ujian ${saved.mapel} dipulihkan! Anda dapat melanjutkan pengerjaan soal.`, 'success');
+    }
+
+    isExamActive = true;
+    cheatingCount = 0;
+    examSecondsRemaining = remainingSeconds;
+    examStartTime = Date.now() - ((totalSeconds - remainingSeconds) * 1000);
+
+    const studentExamList = document.getElementById('student-exam-list');
+    const examScreen = document.getElementById('exam-screen');
+    if (studentExamList) studentExamList.classList.add('hidden');
+    if (examScreen) examScreen.classList.remove('hidden');
+    const meta = document.getElementById('exam-meta');
+    if (meta) meta.innerText = `${saved.mapel} | ${currentSiswa.rombel}`;
+
+    if (typeof showQuestion === 'function') showQuestion(examData.currentIdx);
+    if (examSecondsRemaining > 0 && typeof startTimer === 'function') {
+        startTimer(examSecondsRemaining);
+    }
+    if (typeof updateLiveExamStatus === 'function') updateLiveExamStatus(true);
+    if (typeof liveExamInterval !== 'undefined' && liveExamInterval) clearInterval(liveExamInterval);
+    if (typeof updateLiveExamStatus === 'function') {
+        liveExamInterval = setInterval(() => updateLiveExamStatus(true), 1000);
+    }
+
+    if (navigator.onLine && typeof fetchLiveExamsFromServer === 'function') {
+        setTimeout(async () => {
+            try {
+                const serverLiveExams = await fetchLiveExamsFromServer();
+                await processAdminCommandsOnStudent(serverLiveExams);
+            } catch (e) {
+                console.warn('[resumeStudentExam] Error checking admin commands:', e.message);
+            }
+        }, 500);
+    }
+
+    const existingIndex = (db.activeExams || []).findIndex(e => e.studentId === currentSiswa.id && e.rombel === currentSiswa.rombel && e.mapel === examData.mapel);
+    const resumeEntry = {
+        studentId: currentSiswa.id,
+        studentName: currentSiswa.name,
+        rombel: currentSiswa.rombel,
+        mapel: examData.mapel,
+        currentIdx: examData.currentIdx,
+        answers,
+        ragu,
+        totalSeconds: examData.totalSeconds,
+        remainingSeconds: examSecondsRemaining,
+        updatedAt: Date.now(),
+        isActive: true
+    };
+    if (!Array.isArray(db.activeExams)) db.activeExams = [];
+    if (existingIndex >= 0) {
+        db.activeExams[existingIndex] = { ...db.activeExams[existingIndex], ...resumeEntry };
+    } else {
+        db.activeExams.push(resumeEntry);
+    }
+    try {
+        if (typeof saveLocalDb === 'function') await saveLocalDb();
+    } catch (err) {
+        console.warn('[resumeStudentExam] failed to save local active exam:', err.message || err);
+    }
+
+    saveStudentExamProgress();
+    return true;
+}
+window.resumeStudentExam = resumeStudentExam;
+
+async function restoreStudentExamProgress() {
+    console.log('[restoreStudentExamProgress] START - Checking for saved exam data...');
+
+    if (!currentSiswa || currentSiswa.role !== 'student') {
+        console.log('[restoreStudentExamProgress] SKIP - Not a student or no current user');
+        return false;
+    }
+
+    const saved = await getSavedStudentExamProgress();
+
+    if (!saved || !saved.mapel || !Array.isArray(saved.answers)) {
+        console.log('[restoreStudentExamProgress] ❌ Tidak ada data untuk restore.');
+        return false;
+    }
+
+    console.log('[restoreStudentExamProgress] ✅ Found saved data, resuming exam...');
+    return await resumeStudentExam(saved);
+}
+window.restoreStudentExamProgress = restoreStudentExamProgress;
+
 
 
