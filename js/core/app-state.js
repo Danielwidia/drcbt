@@ -739,6 +739,31 @@ function clearSession() {
     }
 }
 
+function logout() {
+    // Stop any active exam timer
+    if (typeof isExamActive !== 'undefined') isExamActive = false;
+
+    // Save exam progress to localStorage before logging out
+    if (currentSiswa && currentSiswa.role === 'student') {
+        if (typeof saveStudentExamProgress === 'function') {
+            try { saveStudentExamProgress(); } catch (e) { /* ignore */ }
+        }
+        // Fire-and-forget live exam status update
+        if (navigator.onLine && typeof updateLiveExamStatus === 'function') {
+            updateLiveExamStatus(false).catch(e => console.warn('[logout] updateLiveExamStatus:', e.message));
+        }
+    }
+
+    clearSession();
+
+    // Small delay so localStorage write completes before redirect
+    setTimeout(() => {
+        window.location.href = 'index.html';
+    }, 300);
+}
+
+window.logout = logout;
+
 async function send_result_to_server(result) {
     const res = await fetch(getApiBaseUrl() + '/api/result', {
         method: 'POST',
