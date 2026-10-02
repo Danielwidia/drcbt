@@ -693,196 +693,141 @@ function clearSession() {
     }
 }
 
-function showError(customMsg) {
-    const err = document.getElementById('login-error');
-    if (!err) return;
-    const defaultRoleMsg = window.loginType === 'teacher' ? 'Password default: escrido123' : 'Password default: escrido';
-    err.innerHTML = (customMsg || 'ID atau password salah!') + `<br><span class="text-[10px] opacity-70 mt-1 block tracking-tight">• ${defaultRoleMsg}</span>`;
-    err.classList.remove('hidden');
-}
-window.showError = showError;
-
-async function handleLogin() {
-    const u = (document.getElementById('username')?.value || '').trim().toUpperCase();
-    const p = (document.getElementById('password')?.value || '').trim();
-    if (!db.students) return alert('Database belum siap. Silakan refresh halaman.');
-
-    let user = db.students.find(x => x && x.id && x.id.toUpperCase() === u && x.password === p);
-    if (!user) {
-        const term = u.toLowerCase();
-        if (window.loginType === 'student') {
-            user = db.students.find(x => x && x.name && x.name.toLowerCase().includes(term) && x.password === p && x.role === 'student');
-        } else if (window.loginType === 'admin' || window.loginType === 'teacher') {
-            user = db.students.find(x => x && x.name && x.name.toLowerCase().includes(term) && x.password === p && x.role === window.loginType);
-        }
-    }
-
-    if (user) {
-        if (window.loginType === user.role) {
-            currentSiswa = user;
-            window.currentSiswa = user;
-            saveSession();
-            if (user.role === 'admin') window.location.href = 'admin.html';
-            else if (user.role === 'student') window.location.href = 'siswa.html';
-            else if (user.role === 'teacher') window.location.href = 'guru.html';
-        } else {
-            showError(`Akun ini terdaftar sebagai ${user.role}. Silakan klik menu login yang sesuai.`);
-        }
-    } else {
-        const idMatch = db.students.find(x => x && x.id && x.id.toUpperCase() === u);
-        showError(idMatch ? 'ID ditemukan, tapi password salah. Coba lagi.' : 'ID atau Nama tidak ditemukan. Pastikan data sudah tersimpan di Admin.');
-    }
-}
-window.handleLogin = handleLogin;
-
-function logout() {
-    isExamActive = false;
-    if (currentSiswa && currentSiswa.role === 'student' && examData && Array.isArray(examData.answers)) {
-        if (typeof saveStudentExamProgress === 'function') saveStudentExamProgress();
-        if (navigator.onLine && typeof updateLiveExamStatus === 'function') {
-            updateLiveExamStatus(false).catch(e => console.warn('[logout-async] Error:', e.message));
-        }
-    }
-    if (typeof clearStudentExamProgress === 'function') clearStudentExamProgress();
-    clearSession();
-    setTimeout(() => { window.location.href = 'index.html'; }, 300);
-}
-window.logout = logout;
-
-let appBootstrapped = false;
-window.addEventListener('DOMContentLoaded', () => {
-    const btn = document.getElementById('login-btn');
-    if (btn) btn.addEventListener('click', handleLogin);
-    ['username', 'password'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.addEventListener('keypress', e => { if (e.key === 'Enter') handleLogin(); });
+async function send_result_to_server(result) {
+    const res = await fetch(getApiBaseUrl() + '/api/result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(result)
     });
-});
+    if (!res.ok) throw new Error(`server responded ${res.status}`);
+}
 
-window.addEventListener('load', async () => {
-    if (appBootstrapped) return;
-    appBootstrapped = true;
+async function sendResult(result) {
+    // wrapper with retry logic similar to save(); if /api/result is
+    // unavailable (404) we fall back to /api/results then /api/db.
+    let success = false;
+    let attempts = 3;
+    while (attempts > 0 && !success) {
+        try {
+            await send_result_to_server(result);
+            success = true;
+            break;
+        } catch (e) {
+            const msg = e.message || '';
+            if (msg.includes('404')) {
+                console.warn('/api/result not found, using /api/results fallback');
+                const fallbackRes = await fetch(getApiBaseUrl() + '/api/results', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify([result])
+                });
+                if (fallbackRes.ok) {
+                    success = true;
+                    break;
+                }
+            }
 
-    const overlay = document.getElementById('loading-overlay');
-    setTimeout(() => {
-        if (overlay && !overlay.classList.contains('hidden')) {
-            overlay.classList.add('hidden');
-            overlay.classList.remove('flex');
-        }
-    }, 2000);
+            try {
+                const dbRes = await fetch(getApiBaseUrl() + '/api/db', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ results: [result] })
+                });
+                if (dbRes.ok) {
+                    success = true;
+                    break;
+                }
+            } catch (dbErr) {
+                console.warn('Fallback /api/db error', dbErr.message || dbErr);
+            }
 
-    try {
-        await init();
-        if (overlay) {
-            overlay.classList.add('hidden');
-            overlay.classList.remove('flex');
-        }
-    } catch (error) {
-        console.error('Initialization error:', error);
-        if (overlay) {
-            overlay.classList.add('hidden');
-            overlay.classList.remove('flex');
+            console.warn('sendResult error, retrying', msg);
+            attempts--;
+            if (attempts > 0) await new Promise(r => setTimeout(r, 500));
         }
     }
-});
-
-function setAnswer(i) {
-    const q = examData.questions[examData.currentIdx];
-    if (q.type === 'multiple') {
-        let arr = examData.answers[examData.currentIdx] || [];
-        const idx = arr.indexOf(i);
-        if (idx === -1) arr.push(i);
-        else arr.splice(idx, 1);
-        examData.answers[examData.currentIdx] = arr;
-    } else {
-        examData.answers[examData.currentIdx] = i;
-    }
-    saveStudentExamProgress();
-    showQuestion(examData.currentIdx);
+    if (!success) throw new Error('could not send result to server');
 }
-window.setAnswer = setAnswer;
+window.sendResult = sendResult;
 
-function toggleAnswer(i) { setAnswer(i); }
-window.toggleAnswer = toggleAnswer;
-
-function setAnswerText(val) {
-    examData.answers[examData.currentIdx] = val;
-    saveStudentExamProgress();
-    updateQuestionStatus();
-    updateProgress();
-}
-window.setAnswerText = setAnswerText;
-
-function setAnswerTF(stmtIdx, boolVal) {
-    const idx = examData.currentIdx;
-    const ansArr = examData.answers[idx] || [];
-    ansArr[stmtIdx] = boolVal;
-    examData.answers[idx] = ansArr;
-    saveStudentExamProgress();
-    showQuestion(idx);
-}
-window.setAnswerTF = setAnswerTF;
-
-function setMatchingAnswer(qIdx, aIdx) {
-    const idx = examData.currentIdx;
-    const ansArr = examData.answers[idx] || [];
-    ansArr[qIdx] = aIdx === "" ? null : parseInt(aIdx);
-    examData.answers[idx] = ansArr;
-    saveStudentExamProgress();
-    showQuestion(idx);
-}
-window.setMatchingAnswer = setMatchingAnswer;
-
-function navQ(dir) { showQuestion(examData.currentIdx + dir); }
-window.navQ = navQ;
-
-let statusShowAll = false; // show all questions when true
-const MAX_VISIBLE_STATUS = 8;
-
-function toggleStatusView() {
-    statusShowAll = !statusShowAll;
-    const btn = document.getElementById('toggle-status-btn');
-    if (btn) btn.innerText = statusShowAll ? '(Tutup)' : '(Lihat semua)';
-    updateQuestionStatus();
-}
-window.toggleStatusView = toggleStatusView;
-
-function toggleDoubt() {
-    const idx = examData.currentIdx;
-    examData.ragu[idx] = !examData.ragu[idx];
-    saveStudentExamProgress();
-    updateQuestionStatus();
-    updateDoubtBtn();
-}
-window.toggleDoubt = toggleDoubt;
-
-let currentZoomImageIndex = 0;
-window.currentZoomImageIndex = currentZoomImageIndex;
-
-function openImageZoom(qIdx, imgIdx) {
-    try {
-        currentZoomQuestion = qIdx;
-        currentZoomImageIndex = imgIdx;
-        const q = examData.questions[qIdx];
-        if (!q) {
-            console.warn('Question not found at index:', qIdx);
-            return;
+async function save(options = {}) {
+    // Students should not overwrite the entire DB structure via /api/db 
+    // as they may have stale caches that erase admin settings.
+    // Their results are handled separately via sendResult().
+    const isStudent = currentSiswa && currentSiswa.role === 'student';
+    if (isStudent && !options.forceServerSave) {
+        console.log('[SAVE] Skipping server push for student role. Local persistence only.');
+        try {
+            await saveLocalDb();
+            updateStats();
+        } catch (err) {
+            console.warn('LocalStorage save failed:', err.message || err);
         }
-        const images = getQuestionImageSources(q);
+        return;
+    }
 
-        if (images.length > 0 && images[imgIdx]) {
-            const zoomModal = document.getElementById('image-zoom-modal');
-            if (zoomModal) {
-                const zoomImg = document.getElementById('zoom-image');
-                const zoomLabel = document.getElementById('zoom-image-label');
-                if (zoomImg) zoomImg.src = images[imgIdx];
-                if (zoomLabel) zoomLabel.textContent = `Gambar ${imgIdx + 1} / ${images.length}`;
-                zoomModal.classList.remove('hidden');
-                zoomModal.classList.add('flex');
+    // OPTIONAL: Refresh from server before saving to avoid overwriting recent changes from other admins
+    if (options.refreshBeforeSave) {
+        try {
+            const res = await fetch(getApiBaseUrl() + '/api/db?t=' + Date.now());
+            if (res.ok) {
+                const serverDb = await res.json();
+                if (serverDb && serverDb.students) {
+                    if (serverDb.results) db.results = mergeResults(db.results, serverDb.results);
+                }
+            }
+        } catch (e) {
+            console.warn('Pre-save refresh failed, proceeding with local state:', e.message);
+        }
+    }
+
+    // First send database to server; don’t let localStorage issues block the network request.
+    let serverSaveSuccess = false;
+    let retries = 3;
+
+    showToast('Menyimpan ke server...', 'info');
+    while (retries > 0 && !serverSaveSuccess) {
+        try {
+            const payloadToSync = { ...db };
+            if (!loadedCollections.questions) delete payloadToSync.questions;
+            if (!loadedCollections.results) delete payloadToSync.results;
+
+            const jsonBody = JSON.stringify(payloadToSync);
+            const bodySize = jsonBody.length / (1024 * 1024);
+
+            console.log(`[SAVE] Payload size: ${bodySize.toFixed(2)} MB`);
+
+            const res = await fetch(getApiBaseUrl() + '/api/db', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: jsonBody
+            });
+            if (!res.ok) throw new Error('Gagal sync database lokal ke server');
+
+            serverSaveSuccess = true;
+            console.log('Database berhasil disimpan ke server');
+        } catch (err) {
+            console.warn(`Error saat menyimpan ke server (attempt ${4 - retries}):`, err.message || err);
+            retries--;
+            if (retries > 0) {
+                await new Promise(r => setTimeout(r, 1000));
             }
         }
-    } catch (err) {
-        console.warn('[openImageZoom] Error:', err.message || err);
     }
+
+    if (serverSaveSuccess) {
+        showToast('Perubahan tersimpan ke server!', 'success');
+    } else {
+        console.error('PERINGATAN: Gagal menyimpan ke server setelah 3 percobaan!');
+        showToast('Gagal menyimpan ke server! Periksa koneksi.', 'error');
+    }
+
+    try {
+        await saveLocalDb();
+    } catch (err) {
+        console.warn('LocalStorage save failed:', err.message || err);
+    }
+
+    updateStats();
 }
-window.openImageZoom = openImageZoom;
+window.save = save;
