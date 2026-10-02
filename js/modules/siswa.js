@@ -1723,6 +1723,8 @@ async function submitExam() {
 
     const successModal = document.getElementById('score-result');
     if (successModal) successModal.classList.remove('hidden');
+    const studentExamList = document.getElementById('student-exam-list');
+    if (studentExamList) studentExamList.classList.remove('hidden');
     const failModalUI = document.getElementById('failed-result');
     if (failModalUI) failModalUI.classList.add('hidden');
     document.getElementById('final-score-val').innerText = score;
