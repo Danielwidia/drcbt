@@ -4210,7 +4210,7 @@ async function renderStudentExamList() {
 
     if (typeof ensureDataLoaded === 'function') {
         await ensureDataLoaded('questions');
-        await ensureDataLoaded('results', true);
+        await ensureDataLoaded('results');
     }
 
     if (!currentSiswa || !currentSiswa.rombel) {
