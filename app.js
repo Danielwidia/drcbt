@@ -219,7 +219,8 @@ async function ensureDataLoaded(type, force = false) {
             res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/results?limit=-1', {}, 5000);
             if (res.ok) {
                 const data = await res.json();
-                db.results = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
+                const serverResults = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
+                db.results = mergeResults(db.results, serverResults);
                 _hasLoadedFlags.results = true;
             }
         }
