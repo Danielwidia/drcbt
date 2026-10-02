@@ -469,6 +469,50 @@
 
     <!-- Toast Notification Container -->
     <div id="toast-container" class="fixed bottom-6 left-6 z-[10000] flex flex-col gap-2 pointer-events-none"></div>
+
+    <script>
+        function showLoginForm(type) {
+            window.loginType = type;
+
+            const titles = { student: 'Login Siswa', teacher: 'Login Guru', admin: 'Login Admin' };
+            const titleEl = document.getElementById('modal-title');
+            if (titleEl) titleEl.textContent = titles[type] || 'Login';
+
+            const googleSection = document.getElementById('google-signin-section');
+            if (googleSection) {
+                if (type === 'teacher') googleSection.classList.remove('hidden');
+                else googleSection.classList.add('hidden');
+            }
+
+            const usernameEl = document.getElementById('username');
+            const passwordEl = document.getElementById('password');
+            const errorEl = document.getElementById('login-error');
+            if (usernameEl) usernameEl.value = '';
+            if (passwordEl) passwordEl.value = '';
+            if (errorEl) errorEl.classList.add('hidden');
+
+            const modal = document.getElementById('auth-modal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            }
+
+            setTimeout(() => { if (usernameEl) usernameEl.focus(); }, 100);
+        }
+
+        function togglePasswordVisibility() {
+            const pw = document.getElementById('password');
+            const icon = document.getElementById('toggle-pw-icon');
+            if (!pw) return;
+            if (pw.type === 'password') {
+                pw.type = 'text';
+                if (icon) { icon.classList.remove('fa-eye'); icon.classList.add('fa-eye-slash'); }
+            } else {
+                pw.type = 'password';
+                if (icon) { icon.classList.remove('fa-eye-slash'); icon.classList.add('fa-eye'); }
+            }
+        }
+    </script>
 </body>
 
 </html>
