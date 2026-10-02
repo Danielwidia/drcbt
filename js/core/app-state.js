@@ -182,14 +182,14 @@ async function ensureDataLoaded(type, force = false) {
     try {
         let res;
         if (type === 'questions') {
-            res = await fetch(getApiBaseUrl() + '/api/questions?limit=-1');
+            res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/questions?limit=-1', {}, 5000);
             if (res.ok) {
                 const data = await res.json();
                 db.questions = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
                 _hasLoadedFlags.questions = true;
             }
         } else if (type === 'students') {
-            res = await fetch(getApiBaseUrl() + '/api/students');
+            res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/students', {}, 5000);
             if (res.ok) {
                 const data = await res.json();
                 if (Array.isArray(data) && data.length > 0) {
@@ -208,7 +208,7 @@ async function ensureDataLoaded(type, force = false) {
                 _hasLoadedFlags.students = true;
             }
         } else if (type === 'results') {
-            res = await fetch(getApiBaseUrl() + '/api/results?limit=-1');
+            res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/results?limit=-1', {}, 5000);
             if (res.ok) {
                 const data = await res.json();
                 db.results = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
@@ -412,7 +412,7 @@ window.renderSchoolIdentity = renderSchoolIdentity;
 
 async function fetchSchoolSettings() {
     try {
-        const res = await fetch(getApiBaseUrl() + '/api/school-settings');
+        const res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/school-settings', {}, 3000);
         if (res.ok) {
             const settings = await res.json();
             const safeSettings = normalizeSchoolSettings(settings);
@@ -430,6 +430,15 @@ async function fetchSchoolSettings() {
     }
 }
 window.fetchSchoolSettings = fetchSchoolSettings;
+
+function hideLoadingOverlay() {
+    const overlay = document.getElementById('loading-overlay');
+    if (overlay) {
+        overlay.classList.add('hidden');
+        overlay.classList.remove('flex');
+    }
+}
+window.hideLoadingOverlay = hideLoadingOverlay;
 
 function showStaticModeWarning() {
     const warning = document.createElement('div');
@@ -458,223 +467,230 @@ let currentSortOrder = 'asc';
 
 
 async function init() {
-    const loginBtn = document.getElementById('login-btn');
-    const loginBtnText = loginBtn ? loginBtn.innerHTML : '';
-    if (loginBtn) {
-        loginBtn.disabled = true;
-        loginBtn.style.opacity = '0.7';
-        loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading Data...';
-    }
+    try {
+        const loginBtn = document.getElementById('login-btn');
+        const loginBtnText = loginBtn ? loginBtn.innerHTML : '';
+        if (loginBtn) {
+            loginBtn.disabled = true;
+            loginBtn.style.opacity = '0.7';
+            loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading Data...';
+        }
 
-    // Move migrateRombels() to run AFTER database is actually loaded.
-    // SYNC: Fix any data consistency issues in results
-    if (Array.isArray(db.results)) {
-        db.results.forEach((result, idx) => {
-            // Ensure answers and questions arrays match in length
-            if (Array.isArray(result.questions) && Array.isArray(result.answers)) {
-                const qLen = result.questions.length;
-                const aLen = result.answers.length;
-                if (aLen < qLen) {
-                    console.log(`Result ${idx}: Padding answers from ${aLen} to ${qLen}`);
-                    while (result.answers.length < qLen) {
-                        result.answers.push(null);
+        // Move migrateRombels() to run AFTER database is actually loaded.
+        // SYNC: Fix any data consistency issues in results
+        if (Array.isArray(db.results)) {
+            db.results.forEach((result, idx) => {
+                // Ensure answers and questions arrays match in length
+                if (Array.isArray(result.questions) && Array.isArray(result.answers)) {
+                    const qLen = result.questions.length;
+                    const aLen = result.answers.length;
+                    if (aLen < qLen) {
+                        console.log(`Result ${idx}: Padding answers from ${aLen} to ${qLen}`);
+                        while (result.answers.length < qLen) {
+                            result.answers.push(null);
+                        }
                     }
+                    // Validate each question has required fields
+                    result.questions.forEach((q, i) => {
+                        if (!q || typeof q !== 'object') {
+                            console.warn(`Result ${idx}, Question ${i}: Invalid structure`);
+                        }
+                    });
                 }
-                // Validate each question has required fields
-                result.questions.forEach((q, i) => {
-                    if (!q || typeof q !== 'object') {
-                        console.warn(`Result ${idx}, Question ${i}: Invalid structure`);
-                    }
-                });
-            }
-        });
-    }
+            });
+        }
 
-    // First, check if there's a saved session
-    let savedSession = null;
-    try {
-        savedSession = localStorage.getItem(SESSION_KEY);
-    } catch (e) {
-        console.warn('localStorage not available for session check:', e.message);
-    }
-    if (savedSession) {
+        // First, check if there's a saved session
+        let savedSession = null;
         try {
-            const session = JSON.parse(savedSession);
-            currentSiswa = session.user;
+            savedSession = localStorage.getItem(SESSION_KEY);
         } catch (e) {
-            console.warn('Invalid session format');
+            console.warn('localStorage not available for session check:', e.message);
         }
-    }
-
-    // Then fetch DB
-    try {
-        const parsed = await loadLocalDb();
-        if (parsed) db = normalizeDb(parsed);
-
-        // Fetch School Identity First for public branding
-        await fetchSchoolSettings();
-
-        let res;
-        try {
-            res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/db', {}, 7000);
-        } catch (fetchErr) {
-            console.warn('[init] Server DB fetch failed or timed out:', fetchErr.message || fetchErr);
-            window.isStaticMode = true;
-            showStaticModeWarning();
-            res = null;
-        }
-
-        if (res && !res.ok && (res.status === 404 || res.status === 0)) {
+        if (savedSession) {
             try {
-                res = await fetchJsonWithTimeout('database.json', {}, 7000);
+                const session = JSON.parse(savedSession);
+                currentSiswa = session.user;
+            } catch (e) {
+                console.warn('Invalid session format');
+            }
+        }
+
+        // Then fetch DB
+        try {
+            const parsed = await loadLocalDb();
+            if (parsed) db = normalizeDb(parsed);
+
+            // Fetch School Identity First for public branding
+            await fetchSchoolSettings();
+
+            let res;
+            try {
+                res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/db', {}, 7000);
+            } catch (fetchErr) {
+                console.warn('[init] Server DB fetch failed or timed out:', fetchErr.message || fetchErr);
                 window.isStaticMode = true;
                 showStaticModeWarning();
-            } catch (err) {
-                console.warn('[init] database.json fallback failed:', err.message || err);
+                res = null;
             }
-        }
 
-        if (res && res.ok) {
-            const serverDb = await res.json();
-            if (serverDb) {
-                db = normalizeDb(serverDb, db);
-                if (db.schoolSettings && db.schoolSettings.name) {
-                    renderSchoolIdentity(db.schoolSettings);
+            if (res && !res.ok && (res.status === 404 || res.status === 0)) {
+                try {
+                    res = await fetchJsonWithTimeout('database.json', {}, 7000);
+                    window.isStaticMode = true;
+                    showStaticModeWarning();
+                } catch (err) {
+                    console.warn('[init] database.json fallback failed:', err.message || err);
                 }
-                console.log('Database synced with server (Metadata load).');
             }
+
+            if (res && res.ok) {
+                const serverDb = await res.json();
+                if (serverDb) {
+                    db = normalizeDb(serverDb, db);
+                    if (db.schoolSettings && db.schoolSettings.name) {
+                        renderSchoolIdentity(db.schoolSettings);
+                    }
+                    console.log('Database synced with server (Metadata load).');
+                }
+            }
+        } catch (err) {
+            console.error('Initialization error:', err);
         }
-    } catch (err) {
-        console.error('Initialization error:', err);
-    }
 
-    // NOW run migration on the final loaded data
-    migrateRombels();
-    migrateQuestionTypes();
+        // NOW run migration on the final loaded data
+        migrateRombels();
+        migrateQuestionTypes();
 
-    // Re-enable login
-    if (loginBtn) {
-        loginBtn.disabled = false;
-        loginBtn.style.opacity = '1';
-        loginBtn.innerHTML = loginBtnText;
-    }
+        // Re-enable login
+        if (loginBtn) {
+            loginBtn.disabled = false;
+            loginBtn.style.opacity = '1';
+            loginBtn.innerHTML = loginBtnText;
+        }
 
-    // Verify user still exists in database and sync with latest data
-    if (currentSiswa) {
-        await ensureDataLoaded('students');
-        const updatedUser = db.students.find(x => x.id === currentSiswa.id && x.password === currentSiswa.password);
-        if (!updatedUser) {
-            console.warn('User from session not found in database or password mismatch, logging out');
-            clearSession();
-            window.location.href = 'index.html';
+        // Verify user still exists in database and sync with latest data
+        if (currentSiswa) {
+            await ensureDataLoaded('students');
+            const updatedUser = db.students.find(x => x.id === currentSiswa.id && x.password === currentSiswa.password);
+            if (!updatedUser) {
+                console.warn('User from session not found in database or password mismatch, logging out');
+                clearSession();
+                window.location.href = 'index.html';
+                return;
+            }
+
+            // CRITICAL: Update session object to latest structure (migrated rombels/subjects)
+            currentSiswa = updatedUser;
+            window.currentSiswa = updatedUser;
+            console.log('Session synchronized with latest database for:', currentSiswa.name);
+
+            const page = window.location.pathname.split('/').pop().split('?')[0];
+            if (currentSiswa.role === 'admin' && page !== 'admin.html' && page !== 'guru.html') {
+                window.location.href = 'admin.html';
+                return;
+            } else if (currentSiswa.role === 'student' && page !== 'siswa.html') {
+                window.location.href = 'siswa.html';
+                return;
+            } else if (currentSiswa.role === 'teacher' && page !== 'guru.html') {
+                window.location.href = 'guru.html';
+                return;
+            }
+
+            const loginScreen = document.getElementById('login-screen');
+            if (loginScreen) loginScreen.classList.add('hidden');
+
+            if (typeof closeModals === 'function') closeModals();
+
+            if (currentSiswa.role === 'admin') {
+                const adminDash = document.getElementById('admin-dashboard');
+                if (adminDash) adminDash.classList.remove('hidden');
+                const teacherDash = document.getElementById('teacher-dashboard');
+                if (teacherDash) teacherDash.classList.remove('hidden');
+
+                // Auto-load core data for admin
+                await ensureDataLoaded('students');
+                await ensureDataLoaded('questions');
+                await ensureDataLoaded('results');
+
+                if (typeof showAdminSection === 'function') showAdminSection('overview');
+            } else if (currentSiswa.role === 'student') {
+                const studentDash = document.getElementById('student-dashboard');
+                if (studentDash) studentDash.classList.remove('hidden');
+                const stLabel = document.getElementById('st-info-label');
+                if (stLabel) stLabel.innerText = `${currentSiswa.name} | ${currentSiswa.rombel}`;
+
+                // Auto-load core data for student
+                await ensureDataLoaded('questions');
+                await ensureDataLoaded('results', true);
+
+                console.log('[init] Student login detected, checking for exam restore...');
+                console.log('[init] studentDash element:', !!studentDash);
+                console.log('[init] restoreStudentExamProgress function:', typeof restoreStudentExamProgress);
+
+                if (typeof restoreStudentExamProgress === 'function' && studentDash) {
+                    console.log('[init] Calling restoreStudentExamProgress...');
+                    const restored = await restoreStudentExamProgress();
+                    console.log('[init] restoreStudentExamProgress result:', restored);
+                    if (!restored && typeof renderStudentExamList === 'function') {
+                        console.log('[init] No restore data, rendering exam list...');
+                        renderStudentExamList();
+                    } else if (restored) {
+                        console.log('[init] Exam restored successfully');
+                    }
+                } else if (typeof renderStudentExamList === 'function') {
+                    console.log('[init] No restore function or studentDash, rendering exam list...');
+                    renderStudentExamList();
+                }
+
+                // Request fullscreen mode for student
+                if (typeof requestFullscreen === 'function') {
+                    requestFullscreen();
+                }
+            } else if (currentSiswa.role === 'teacher') {
+                const teacherDash = document.getElementById('teacher-dashboard');
+                if (teacherDash) teacherDash.classList.remove('hidden');
+
+                // Auto-load core data for teacher
+                await ensureDataLoaded('students');
+                await ensureDataLoaded('questions');
+                await ensureDataLoaded('results');
+
+                const tcLabel = document.getElementById('teacher-info-label');
+                if (tcLabel) tcLabel.innerText = `${currentSiswa.name} | Guru ${typeof formatTeacherSubjects === 'function' ? formatTeacherSubjects(currentSiswa) : ''}`;
+                // Clear search input and API key input on initial load
+                const searchInput = document.getElementById('teacher-search-questions');
+                if (searchInput) searchInput.value = '';
+                const apiKeyInput = document.getElementById('new-api-key-input');
+                if (apiKeyInput) apiKeyInput.value = '';
+                if (typeof renderTeacherQuestions === 'function' && teacherDash) renderTeacherQuestions();
+            }
+            migrateTeacherData();
+            updateStats();
+
+            // Apply school branding AFTER dashboard is fully visible
+            // This is the definitive call that sets logo/name on the rendered dashboard
+            const schoolData = db.schoolSettings?.name ? db.schoolSettings : null;
+            if (schoolData) {
+                renderSchoolIdentity(schoolData);
+            }
+
             return;
         }
-
-        // CRITICAL: Update session object to latest structure (migrated rombels/subjects)
-        currentSiswa = updatedUser;
-        window.currentSiswa = updatedUser;
-        console.log('Session synchronized with latest database for:', currentSiswa.name);
 
         const page = window.location.pathname.split('/').pop().split('?')[0];
-        if (currentSiswa.role === 'admin' && page !== 'admin.html' && page !== 'guru.html') {
-            window.location.href = 'admin.html';
-            return;
-        } else if (currentSiswa.role === 'student' && page !== 'siswa.html') {
-            window.location.href = 'siswa.html';
-            return;
-        } else if (currentSiswa.role === 'teacher' && page !== 'guru.html') {
-            window.location.href = 'guru.html';
-            return;
+        if (page !== '' && page !== 'index.html') {
+            window.location.href = 'index.html';
+        } else {
+            if (typeof showLoginScreen === 'function' && document.getElementById('login-screen')) showLoginScreen();
         }
-
-        const loginScreen = document.getElementById('login-screen');
-        if (loginScreen) loginScreen.classList.add('hidden');
-
-        if (typeof closeModals === 'function') closeModals();
-
-        if (currentSiswa.role === 'admin') {
-            const adminDash = document.getElementById('admin-dashboard');
-            if (adminDash) adminDash.classList.remove('hidden');
-            const teacherDash = document.getElementById('teacher-dashboard');
-            if (teacherDash) teacherDash.classList.remove('hidden');
-
-            // Auto-load core data for admin
-            await ensureDataLoaded('students');
-            await ensureDataLoaded('questions');
-            await ensureDataLoaded('results');
-
-            if (typeof showAdminSection === 'function') showAdminSection('overview');
-        } else if (currentSiswa.role === 'student') {
-            const studentDash = document.getElementById('student-dashboard');
-            if (studentDash) studentDash.classList.remove('hidden');
-            const stLabel = document.getElementById('st-info-label');
-            if (stLabel) stLabel.innerText = `${currentSiswa.name} | ${currentSiswa.rombel}`;
-
-            // Auto-load core data for student
-            await ensureDataLoaded('questions');
-            await ensureDataLoaded('results', true);
-
-            console.log('[init] Student login detected, checking for exam restore...');
-            console.log('[init] studentDash element:', !!studentDash);
-            console.log('[init] restoreStudentExamProgress function:', typeof restoreStudentExamProgress);
-
-            if (typeof restoreStudentExamProgress === 'function' && studentDash) {
-                console.log('[init] Calling restoreStudentExamProgress...');
-                const restored = await restoreStudentExamProgress();
-                console.log('[init] restoreStudentExamProgress result:', restored);
-                if (!restored && typeof renderStudentExamList === 'function') {
-                    console.log('[init] No restore data, rendering exam list...');
-                    renderStudentExamList();
-                } else if (restored) {
-                    console.log('[init] Exam restored successfully');
-                }
-            } else if (typeof renderStudentExamList === 'function') {
-                console.log('[init] No restore function or studentDash, rendering exam list...');
-                renderStudentExamList();
-            }
-
-            // Request fullscreen mode for student
-            if (typeof requestFullscreen === 'function') {
-                requestFullscreen();
-            }
-        } else if (currentSiswa.role === 'teacher') {
-            const teacherDash = document.getElementById('teacher-dashboard');
-            if (teacherDash) teacherDash.classList.remove('hidden');
-
-            // Auto-load core data for teacher
-            await ensureDataLoaded('students');
-            await ensureDataLoaded('questions');
-            await ensureDataLoaded('results');
-
-            const tcLabel = document.getElementById('teacher-info-label');
-            if (tcLabel) tcLabel.innerText = `${currentSiswa.name} | Guru ${typeof formatTeacherSubjects === 'function' ? formatTeacherSubjects(currentSiswa) : ''}`;
-            // Clear search input and API key input on initial load
-            const searchInput = document.getElementById('teacher-search-questions');
-            if (searchInput) searchInput.value = '';
-            const apiKeyInput = document.getElementById('new-api-key-input');
-            if (apiKeyInput) apiKeyInput.value = '';
-            if (typeof renderTeacherQuestions === 'function' && teacherDash) renderTeacherQuestions();
-        }
-        migrateTeacherData();
-        updateStats();
-
-        // Apply school branding AFTER dashboard is fully visible
-        // This is the definitive call that sets logo/name on the rendered dashboard
-        const schoolData = db.schoolSettings?.name ? db.schoolSettings : null;
-        if (schoolData) {
-            renderSchoolIdentity(schoolData);
-        }
-
-        return;
-    }
-
-    const page = window.location.pathname.split('/').pop().split('?')[0];
-    if (page !== '' && page !== 'index.html') {
-        window.location.href = 'index.html';
-    } else {
-        if (typeof showLoginScreen === 'function' && document.getElementById('login-screen')) showLoginScreen();
+    } catch (err) {
+        console.error('[init] Initialization error:', err);
+    } finally {
+        hideLoadingOverlay();
     }
 }
+window.init = init;
 
 function showLoginScreen() {
     const login = document.getElementById('login-screen');
@@ -860,3 +876,58 @@ async function save(options = {}) {
     updateStats();
 }
 window.save = save;
+
+// --- AUTO INITIALIZE ON DOM LOAD ---
+const startAppInitialization = async () => {
+    // Safety fallback timer: guarantee overlay removal after max 2.5s regardless of init progress
+    const safetyTimer = setTimeout(() => {
+        hideLoadingOverlay();
+    }, 2500);
+
+    try {
+        await init();
+    } catch (err) {
+        console.error('[init] Initialization failed:', err);
+    } finally {
+        clearTimeout(safetyTimer);
+        hideLoadingOverlay();
+    }
+
+    // Question type change listener
+    const typeSel = document.getElementById('q-type');
+    if (typeSel && typeof onQuestionTypeChange === 'function') {
+        typeSel.addEventListener('change', onQuestionTypeChange);
+    }
+
+    // Close import/export dropdowns when clicking outside
+    document.addEventListener('click', (e) => {
+        const importDropdown = document.getElementById('import-dropdown');
+        const exportDropdown = document.getElementById('export-dropdown');
+
+        if (!importDropdown || !exportDropdown) return;
+
+        const clickedImportToggle = e.target.closest('[onclick="toggleImportDropdown()"]');
+        const clickedExportToggle = e.target.closest('[onclick="toggleExportDropdown()"]');
+        const clickedImportDropdown = e.target.closest('#import-dropdown');
+        const clickedExportDropdown = e.target.closest('#export-dropdown');
+
+        if (!clickedImportToggle && !clickedExportToggle && !clickedImportDropdown && !clickedExportDropdown) {
+            importDropdown.classList.add('hidden');
+            exportDropdown.classList.add('hidden');
+        }
+    });
+
+    // Handle hash-based tab switching for guru.html
+    if (window.location.pathname.endsWith('guru.html') && window.location.hash) {
+        const tabName = window.location.hash.substring(1);
+        if (typeof switchTeacherTab === 'function') {
+            setTimeout(() => switchTeacherTab(tabName), 500);
+        }
+    }
+};
+
+if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', startAppInitialization);
+} else {
+    startAppInitialization();
+}
