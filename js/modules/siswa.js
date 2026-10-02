@@ -952,6 +952,58 @@ function showQuestion(idx) {
     document.getElementById('btn-finish').classList.toggle('hidden', idx !== examData.questions.length - 1);
 }
 
+function setAnswer(i) {
+    const q = examData.questions[examData.currentIdx];
+    if (q.type === 'multiple') {
+        let arr = examData.answers[examData.currentIdx] || [];
+        const idx = arr.indexOf(i);
+        if (idx === -1) arr.push(i);
+        else arr.splice(idx, 1);
+        examData.answers[examData.currentIdx] = arr;
+    } else {
+        examData.answers[examData.currentIdx] = i;
+    }
+    saveStudentExamProgress();
+    showQuestion(examData.currentIdx);
+}
+
+function toggleAnswer(i) { setAnswer(i); }
+
+function setAnswerText(val) {
+    examData.answers[examData.currentIdx] = val;
+    saveStudentExamProgress();
+    updateQuestionStatus();
+    updateProgress();
+}
+
+function setAnswerTF(stmtIdx, boolVal) {
+    const idx = examData.currentIdx;
+    const ansArr = examData.answers[idx] || [];
+    ansArr[stmtIdx] = boolVal;
+    examData.answers[idx] = ansArr;
+    saveStudentExamProgress();
+    showQuestion(idx);
+}
+
+function setMatchingAnswer(qIdx, aIdx) {
+    const idx = examData.currentIdx;
+    const ansArr = examData.answers[idx] || [];
+    ansArr[qIdx] = aIdx === "" ? null : parseInt(aIdx);
+    examData.answers[idx] = ansArr;
+    saveStudentExamProgress();
+    showQuestion(idx);
+}
+
+function navQ(dir) { showQuestion(examData.currentIdx + dir); }
+
+function toggleDoubt() {
+    const idx = examData.currentIdx;
+    examData.ragu[idx] = !examData.ragu[idx];
+    saveStudentExamProgress();
+    updateQuestionStatus();
+    updateDoubtBtn();
+}
+
 let statusShowAll = false; // show all questions when true
 const MAX_VISIBLE_STATUS = 8;
 
