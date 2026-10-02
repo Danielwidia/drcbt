@@ -2115,5 +2115,84 @@ async function restoreStudentExamProgress() {
 }
 window.restoreStudentExamProgress = restoreStudentExamProgress;
 
+async function processAdminCommandsOnStudent(liveExams) {
+    if (!currentSiswa || currentSiswa.role !== 'student' || !examData || !examData.mapel) return;
+    if (!Array.isArray(liveExams)) return;
+
+    const norm = v => String(v || '').trim().toLowerCase();
+    const sid = norm(currentSiswa.id);
+    const srb = norm(currentSiswa.rombel);
+    const smp = norm(examData.mapel);
+
+    const commandEntry = liveExams.find(e =>
+        norm(e.studentId) === sid &&
+        norm(e.rombel) === srb &&
+        norm(e.mapel) === smp
+    );
+    if (!commandEntry) return;
+
+    let updated = false;
+
+    if (commandEntry.adminSaveRequest) {
+        console.log('[Student] ADMIN SAVE REQUEST DETECTED - Forcing latest exam state save');
+        commandEntry.adminSaveRequest = false;
+        commandEntry.adminSaveConfirmed = true;
+        commandEntry.savedByAdminCommand = true;
+
+        if (commandEntry.adminSavedProgress) {
+            examData.adminSavedProgress = commandEntry.adminSavedProgress;
+            examData.currentIdx = commandEntry.adminSavedProgress.currentIdx;
+            examData.answers = commandEntry.adminSavedProgress.answers;
+            examData.ragu = commandEntry.adminSavedProgress.ragu || [];
+            examData.totalSeconds = commandEntry.adminSavedProgress.totalSeconds || 0;
+            if (typeof examSecondsRemaining !== 'undefined') {
+                examSecondsRemaining = commandEntry.adminSavedProgress.remainingSeconds || 0;
+            }
+        }
+
+        examData.savedByAdminCommand = true;
+        updated = true;
+        saveStudentExamProgress();
+        if (typeof showToast === 'function') showToast('✅ Admin menyimpan jawaban Anda. Data terbaru telah dikirim ke server.', 'success');
+    }
+
+    if (commandEntry.adminReloadRequest && String(commandEntry.adminReloadRequest) !== sessionStorage.getItem('last_reload_cmd')) {
+        console.log('[Student] Admin reload request received - ID:', commandEntry.adminReloadRequest);
+        sessionStorage.setItem('last_reload_cmd', commandEntry.adminReloadRequest);
+        saveStudentExamProgress();
+        updated = true;
+        if (typeof showToast === 'function') showToast('Perintah reload diterima. Memuat ulang...', 'info');
+        setTimeout(() => location.reload(), 1000);
+    }
+
+    if (commandEntry.adminDeleteCheckpoint || commandEntry.adminClearRequest) {
+        const lastCmd = sessionStorage.getItem('last_clear_cmd');
+        if (String(commandEntry.adminClearRequest) !== lastCmd) {
+            sessionStorage.setItem('last_clear_cmd', String(commandEntry.adminClearRequest));
+            console.log('[Student] ADMIN CLEAR REQUEST DETECTED - Wiping answers');
+            clearStudentExamProgress();
+            if (Array.isArray(examData.answers)) {
+                examData.answers = examData.answers.map(ans => {
+                    if (Array.isArray(ans)) return [];
+                    if (typeof ans === 'string') return '';
+                    return null;
+                });
+            }
+            if (typeof showQuestion === 'function') showQuestion(examData.currentIdx || 0);
+            if (typeof updateQuestionStatus === 'function') updateQuestionStatus();
+            if (typeof showToast === 'function') showToast('⚠️ Admin telah mengosongkan jawaban Anda.', 'warning');
+        }
+    }
+
+    if (updated && typeof saveLocalDb === 'function') {
+        try {
+            await saveLocalDb();
+        } catch (err) {
+            console.warn('[processAdminCommandsOnStudent] failed to save local DB:', err.message || err);
+        }
+    }
+}
+window.processAdminCommandsOnStudent = processAdminCommandsOnStudent;
+
 
 
