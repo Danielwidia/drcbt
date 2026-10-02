@@ -319,6 +319,117 @@ window.addEventListener('beforeunload', () => {
     }
 });
 
+const SCHOOL_SETTINGS_KEY = 'cbt_school_settings';
+
+function normalizeSchoolSettings(settings = {}) {
+    if (!settings || typeof settings !== 'object') return {};
+    return {
+        yayasan: settings.yayasan || '',
+        name: settings.name || '',
+        principal: settings.principal || '',
+        principalNip: settings.principalNip || '',
+        address: settings.address || '',
+        kota: settings.kota || '',
+        tahun: settings.tahun || '',
+        semester: settings.semester || 'GANJIL',
+        logo: settings.logo || '',
+        logoUrl: settings.logoUrl || '',
+        ...settings
+    };
+}
+
+function renderSchoolIdentity(settings) {
+    const safeSettings = normalizeSchoolSettings(settings || db?.schoolSettings || {});
+    if (!safeSettings.name) return;
+
+    const name = safeSettings.name;
+    let logo = safeSettings.logoUrl || safeSettings.logo || localStorage.getItem('cbt_school_logo') || 'logo.png';
+    if (logo && logo !== 'undefined' && logo !== 'null' && !logo.startsWith('data:') && !logo.startsWith('http') && logo !== 'logo.png') {
+        const base = typeof getApiBaseUrl === 'function' ? getApiBaseUrl() : '';
+        if (base) logo = base + (logo.startsWith('/') ? logo : '/' + logo);
+    }
+
+    const currentTitle = document.title;
+    if (!currentTitle.includes(name.toUpperCase())) {
+        document.title = `CBT - ${name}`;
+    }
+
+    const ids = ['school-name-display', 'raport-school-name', 'cert-school-name'];
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = name;
+    });
+
+    const loginSubtitle = document.querySelector('.cbt-subtitle');
+    const loginLogo = document.querySelector('.logo-glow');
+    if (loginSubtitle) loginSubtitle.innerText = name;
+    if (loginLogo) {
+        loginLogo.src = logo;
+        const favicon = document.querySelector('link[rel="icon"]');
+        const appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+        if (favicon) favicon.href = logo;
+        if (appleIcon) appleIcon.href = logo;
+    }
+
+    const adminSidebarTitle = document.getElementById('admin-sidebar-title');
+    const adminSidebarLogo = document.getElementById('admin-sidebar-logo');
+    const raportLogo = document.getElementById('raport-logo');
+    if (adminSidebarTitle) adminSidebarTitle.innerText = `ADMIN CBT ${name}`;
+    if (adminSidebarLogo) adminSidebarLogo.src = logo;
+    if (raportLogo) raportLogo.src = logo;
+
+    const teacherSidebarTitle = document.getElementById('teacher-sidebar-title');
+    const teacherSidebarLogo = document.getElementById('teacher-sidebar-logo');
+    if (teacherSidebarTitle) teacherSidebarTitle.innerText = `${name} - GURU`;
+    if (teacherSidebarLogo) teacherSidebarLogo.src = logo;
+
+    const studentSidebarTitle = document.getElementById('student-sidebar-title');
+    const studentSidebarLogo = document.getElementById('student-sidebar-logo');
+    const studentMeta = document.getElementById('student-meta-school');
+    if (studentSidebarTitle) studentSidebarTitle.innerText = name;
+    if (studentSidebarLogo) studentSidebarLogo.src = logo;
+    if (studentMeta) studentMeta.innerText = name;
+}
+window.renderSchoolIdentity = renderSchoolIdentity;
+
+async function fetchSchoolSettings() {
+    try {
+        const res = await fetch(getApiBaseUrl() + '/api/school-settings');
+        if (res.ok) {
+            const settings = await res.json();
+            const safeSettings = normalizeSchoolSettings(settings);
+            if (safeSettings.name) {
+                if (!db.schoolSettings) db.schoolSettings = {};
+                Object.assign(db.schoolSettings, safeSettings);
+                renderSchoolIdentity(safeSettings);
+            }
+        }
+    } catch (e) {
+        console.warn('[fetchSchoolSettings] Failed:', e.message);
+        if (db.schoolSettings && db.schoolSettings.name) {
+            renderSchoolIdentity(db.schoolSettings);
+        }
+    }
+}
+window.fetchSchoolSettings = fetchSchoolSettings;
+
+function showStaticModeWarning() {
+    const warning = document.createElement('div');
+    warning.id = 'static-mode-warning';
+    warning.className = 'fixed bottom-4 right-4 bg-amber-600 text-white px-4 py-3 rounded-2xl shadow-2xl z-[9999] flex items-center gap-3 animate-bounce cursor-pointer';
+    warning.innerHTML = `
+        <div class="bg-white/20 w-8 h-8 rounded-full flex items-center justify-center"><i class="fas fa-exclamation-triangle"></i></div>
+        <div>
+            <p class="text-[10px] font-black uppercase tracking-widest opacity-80">Static Mode</p>
+            <p class="text-xs font-bold leading-tight">Berjalan tanpa server. Perubahan tidak akan tersimpan ke server!</p>
+        </div>
+        <button class="ml-2 opacity-50 hover:opacity-100" onclick="this.parentElement.remove()"><i class="fas fa-times"></i></button>
+    `;
+    document.body.appendChild(warning);
+}
+
+window.showStaticModeWarning = showStaticModeWarning;
+
 let currentConfigType = "";
 
 let currentDetailPackage = null;
