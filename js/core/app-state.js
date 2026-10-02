@@ -42,6 +42,24 @@ function reloadPage() {
     }, 500);
 }
 
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 7000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } catch (error) {
+        if (error && error.name === 'AbortError') {
+            throw new Error(`Request timeout after ${timeoutMs}ms: ${url}`);
+        }
+        throw error;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+window.fetchJsonWithTimeout = fetchJsonWithTimeout;
+
 const DB_KEY = "EXAM_DORKAS_DATABASE_OFFICIAL";
 
 const SESSION_KEY = "EXAM_DORKAS_SESSION";
@@ -496,18 +514,29 @@ async function init() {
         // Fetch School Identity First for public branding
         await fetchSchoolSettings();
 
-        let res = await fetch(getApiBaseUrl() + '/api/db');
-        if (!res.ok && (res.status === 404 || res.status === 0)) {
-            res = await fetch('database.json');
+        let res;
+        try {
+            res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/db', {}, 7000);
+        } catch (fetchErr) {
+            console.warn('[init] Server DB fetch failed or timed out:', fetchErr.message || fetchErr);
             window.isStaticMode = true;
             showStaticModeWarning();
+            res = null;
         }
 
-        if (res.ok) {
+        if (res && !res.ok && (res.status === 404 || res.status === 0)) {
+            try {
+                res = await fetchJsonWithTimeout('database.json', {}, 7000);
+                window.isStaticMode = true;
+                showStaticModeWarning();
+            } catch (err) {
+                console.warn('[init] database.json fallback failed:', err.message || err);
+            }
+        }
+
+        if (res && res.ok) {
             const serverDb = await res.json();
             if (serverDb) {
-                // Merge metadata from server into local state without erasing 
-                // large collections that weren't sent (lazy-loaded).
                 db = normalizeDb(serverDb, db);
                 if (db.schoolSettings && db.schoolSettings.name) {
                     renderSchoolIdentity(db.schoolSettings);
