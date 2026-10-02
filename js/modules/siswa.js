@@ -1702,6 +1702,11 @@ async function submitExam() {
 
     clearStudentExamProgress();
 
+    // Refresh student exam list so if they reload or navigate, the UI is already updated
+    if (typeof renderStudentExamList === 'function') {
+        renderStudentExamList();
+    }
+
     // refresh admin/teacher views if they're visible so the new score
     // shows up right away
     if (document.getElementById('admin-dashboard') &&
@@ -1994,6 +1999,17 @@ async function getSavedStudentExamProgress(mapel = null) {
         const mapelMatch = !mapel || norm(saved.mapel) === norm(mapel);
 
         if (!idMatch || !rombelMatch || !mapelMatch) return false;
+
+        // Check if student has ALREADY completed this exam result in db.results
+        const alreadyDone = (db.results || []).some(r => {
+            if (!r || r.deleted) return false;
+            return norm(r.studentId || r.student_id) === norm(currentSiswa.id) && norm(r.mapel) === norm(saved.mapel);
+        });
+        if (alreadyDone) {
+            console.log('[matchSaved] Student has already completed exam for mapel:', saved.mapel, ', ignoring checkpoint.');
+            return false;
+        }
+
         if (!saved.savedByAdminCommand && !saved.adminSaveConfirmed) return false;
 
         const hasAnswers = saved.answers.length > 0;
@@ -2031,7 +2047,11 @@ async function getSavedStudentExamProgress(mapel = null) {
                                 savedByAdminCommand: true,
                                 adminSaveConfirmed: true
                             };
-                            return saved;
+                            if (matchSaved(saved)) {
+                                return saved;
+                            } else {
+                                console.log('[getSavedStudentExamProgress] Server checkpoint ignored by matchSaved (e.g. already done or invalid).');
+                            }
                         } else {
                             console.log('[getSavedStudentExamProgress] 🗑️ Server has no checkpoint. Clearing local cache for consistency.');
                             clearStudentExamProgress();
