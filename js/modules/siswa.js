@@ -708,7 +708,7 @@ async function startExam(mapel) {
         return null; // default single-choice
     });
     const ragu = normalizedQuestions.map(() => false);
-    examData = { mapel, questions: normalizedQuestions, currentIdx: 0, answers, ragu };
+    examData = { mapel, rombel: currentSiswa.rombel || '', questions: normalizedQuestions, currentIdx: 0, answers, ragu };
 
     // Tampilkan petunjuk ujian untuk siswa
     showStudentInstructionModal();
@@ -1646,7 +1646,7 @@ async function submitExam() {
     const newEntry = {
         studentId: currentSiswa.id,
         studentName: currentSiswa.name,
-        rombel: examData.rombel,
+        rombel: examData.rombel || currentSiswa.rombel || '',
         mapel: examData.mapel,
         score: score,
         date: new Date().toISOString(),
