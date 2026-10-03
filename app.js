@@ -1,7 +1,7 @@
 /**
  * DR CBT - Combined Application Bundle
  * Generated from modular files in js/
- * Last Built: 2026-10-03T01:42:45.372Z
+ * Last Built: 2026-10-03T01:57:38.814Z
  */
 
 
@@ -296,21 +296,20 @@ function mergeResults(localArr = [], serverArr = []) {
             return;
         }
 
-        // equal timestamp: maximize details and preserve deletion flag
-        if (!hasDetails(existing) && hasDetails(r)) {
-            map.set(key, Object.assign({}, existing, r));
-        }
+        // equal timestamp: merge incoming server properties (e.g. server id) into existing record
+        map.set(key, Object.assign({}, existing, r));
     });
     return Array.from(map.values());
 }
+window.mergeResults = mergeResults;
 
 async function fetchAndMerge() {
     try {
         await ensureDataLoaded('results', true, true);
-        if (document.getElementById('admin-results') && !document.getElementById('admin-results').classList.contains('hidden')) {
+        if (document.getElementById('results-table-body') || (document.getElementById('admin-results') && !document.getElementById('admin-results').classList.contains('hidden'))) {
             if (typeof renderAdminResults === 'function') renderAdminResults();
         }
-        if (document.getElementById('teacher-dashboard') && !document.getElementById('teacher-dashboard').classList.contains('hidden')) {
+        if (document.getElementById('teacher-results-table-body') || (document.getElementById('teacher-dashboard') && !document.getElementById('teacher-dashboard').classList.contains('hidden'))) {
             if (typeof renderTeacherResults === 'function') renderTeacherResults();
         }
     } catch (e) {
@@ -318,6 +317,23 @@ async function fetchAndMerge() {
     }
 }
 window.fetchAndMerge = fetchAndMerge;
+
+function deleteResult(idx) {
+    if (!confirm('Hapus hasil ujian ini?')) return;
+    if (!db.results[idx]) return;
+    db.results[idx].deleted = true;
+    db.results[idx].updatedAt = Date.now();
+    if (typeof updateCompletionCharts === 'function') updateCompletionCharts();
+    if (typeof save === 'function') save();
+
+    if (document.getElementById('results-table-body')) {
+        if (typeof renderAdminResults === 'function') renderAdminResults();
+    }
+    if (document.getElementById('teacher-results-table-body')) {
+        if (typeof renderTeacherResults === 'function') renderTeacherResults();
+    }
+}
+window.deleteResult = deleteResult;
 
 window.addEventListener('storage', async e => {
     if (e.key !== DB_KEY) return;

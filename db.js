@@ -266,17 +266,27 @@ async function setAllQuizzes(quizzes) {
 // ─── Results ──────────────────────────────────────────────────────────────────
 async function getAllResults() {
     const sb = getSupabase();
-    const { data, error } = await sb.from('cbt_results').select('data').order('created_at', { ascending: false });
+    const { data, error } = await sb.from('cbt_results').select('id, data, student_id, mapel, rombel, date, score, created_at').order('created_at', { ascending: false });
     if (error) throw new Error('getAllResults error: ' + error.message);
-    const decs = (data || []).map(r => ({ raw: r, dec: dec(r.data) }));
-    return decs
-        .map(x => x.dec)
-        .filter(r => r && !r.deleted && isValidResult(r));
+    const decs = (data || []).map(r => {
+        const decoded = dec(r.data) || {};
+        if (typeof decoded === 'object' && decoded !== null) {
+            decoded.id = r.id;
+            decoded.studentId = decoded.studentId || decoded.student_id || r.student_id || '';
+            decoded.studentName = decoded.studentName || decoded.name || decoded.student_name || decoded.studentId || 'Siswa';
+            decoded.mapel = decoded.mapel || r.mapel || '';
+            decoded.rombel = decoded.rombel || r.rombel || '';
+            decoded.date = decoded.date || r.date || r.created_at || new Date().toISOString();
+            decoded.score = decoded.score !== undefined && decoded.score !== null ? decoded.score : (r.score !== undefined ? r.score : 0);
+        }
+        return decoded;
+    });
+    return decs.filter(r => r && !r.deleted && isValidResult(r));
 }
 
 async function getResults(options = {}) {
     const sb = getSupabase();
-    let query = sb.from('cbt_results').select('data');
+    let query = sb.from('cbt_results').select('id, data, student_id, mapel, rombel, date, score, created_at');
     if (options.studentId) query = query.eq('student_id', options.studentId);
     if (options.mapel) query = query.ilike('mapel', `%${options.mapel}%`);
     if (options.rombel) query = query.eq('rombel', options.rombel);
@@ -286,21 +296,40 @@ async function getResults(options = {}) {
     query = query.range(offset, offset + limit - 1);
     const { data, error } = await query;
     if (error) throw new Error('getResults error: ' + error.message);
-    const decs = (data || []).map(r => ({ raw: r, dec: dec(r.data) }));
-    return decs
-        .map(x => x.dec)
-        .filter(r => r && !r.deleted && isValidResult(r));
+    const decs = (data || []).map(r => {
+        const decoded = dec(r.data) || {};
+        if (typeof decoded === 'object' && decoded !== null) {
+            decoded.id = r.id;
+            decoded.studentId = decoded.studentId || decoded.student_id || r.student_id || '';
+            decoded.studentName = decoded.studentName || decoded.name || decoded.student_name || decoded.studentId || 'Siswa';
+            decoded.mapel = decoded.mapel || r.mapel || '';
+            decoded.rombel = decoded.rombel || r.rombel || '';
+            decoded.date = decoded.date || r.date || r.created_at || new Date().toISOString();
+            decoded.score = decoded.score !== undefined && decoded.score !== null ? decoded.score : (r.score !== undefined ? r.score : 0);
+        }
+        return decoded;
+    });
+    return decs.filter(r => r && !r.deleted && isValidResult(r));
 }
 
 async function getResultsCount(options = {}) {
     const sb = getSupabase();
-    let query = sb.from('cbt_results').select('id', { count: 'exact', head: true });
+    let query = sb.from('cbt_results').select('id, data, student_id, mapel, rombel');
     if (options.studentId) query = query.eq('student_id', options.studentId);
     if (options.mapel) query = query.ilike('mapel', `%${options.mapel}%`);
     if (options.rombel) query = query.eq('rombel', options.rombel);
-    const { data, error } = await query.select('id, data');
+    const { data, error } = await query;
     if (error) throw new Error('getResultsCount error: ' + error.message);
-    const decs = (data || []).map(r => dec(r.data)).filter(r => r && !r.deleted && isValidResult(r));
+    const decs = (data || []).map(r => {
+        const decoded = dec(r.data) || {};
+        if (typeof decoded === 'object' && decoded !== null) {
+            decoded.id = r.id;
+            decoded.studentId = decoded.studentId || decoded.student_id || r.student_id || '';
+            decoded.mapel = decoded.mapel || r.mapel || '';
+            decoded.rombel = decoded.rombel || r.rombel || '';
+        }
+        return decoded;
+    }).filter(r => r && !r.deleted && isValidResult(r));
     return decs.length || 0;
 }
 
@@ -309,7 +338,7 @@ async function upsertResult(r) {
     const scoreVal = typeof r.score === 'string' ? parseFloat(r.score) : (r.score || 0);
     const dateVal = r.date || new Date().toISOString();
     const record = {
-        student_id: r.studentId || '',
+        student_id: r.studentId || r.student_id || '',
         mapel: r.mapel || '',
         rombel: r.rombel || '',
         date: dateVal,
@@ -318,9 +347,6 @@ async function upsertResult(r) {
         created_at: dateVal
     };
 
-    // Use the JSON payload as a fallback match key because older records may have
-    // slightly different field formatting or the browser may send a deleted record
-    // without an exact row-level date match.
     let query = sb.from('cbt_results').select('id, data, student_id, mapel, rombel, date');
     if (record.student_id) {
         query = query.eq('student_id', record.student_id);
@@ -505,12 +531,10 @@ async function mergeResults(inc = []) {
 // Helper: determine whether a decoded result object is valid (not corrupted)
 function isValidResult(r) {
     if (!r || typeof r !== 'object') return false;
-    const sName = r.studentName;
-    const rombel = r.rombel;
+    const sid = r.studentId || r.student_id || r.id;
     const mapel = r.mapel;
-    const sid = r.studentId;
     const bad = v => v === undefined || v === null || String(v).trim() === '' || String(v).trim().toLowerCase() === 'undefined';
-    if (bad(sName) || bad(rombel) || bad(mapel) || bad(sid)) return false;
+    if (bad(sid) || bad(mapel)) return false;
     return true;
 }
 
