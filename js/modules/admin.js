@@ -623,6 +623,72 @@ function ensureQuizzActionButtons() {
     }
 }
 
+async function updateAdminAPIStats() {
+    try {
+        const baseUrl = typeof getApiBaseUrl === 'function' ? getApiBaseUrl() : '';
+        const response = await fetch(baseUrl + '/api/admin/global-api-keys');
+        if (response.ok) {
+            const result = await response.json();
+            if (result.ok) {
+                const activeEl = document.getElementById('stat-api-active');
+                const exhaustedEl = document.getElementById('stat-api-exhausted');
+                if (activeEl) activeEl.innerText = result.activeCount || 0;
+                if (exhaustedEl) exhaustedEl.innerText = result.exhaustedCount || 0;
+                window.globalApiKeysActive = result.activeCount || 0;
+                window.globalApiKeysExhausted = result.exhaustedCount || 0;
+            }
+        }
+    } catch (err) {
+        console.error('Error fetching API key stats:', err);
+    }
+}
+window.updateAdminAPIStats = updateAdminAPIStats;
+
+window.addGlobalApiKey = async function () {
+    const input = document.getElementById('new-api-key');
+    const apiKey = input ? input.value.trim() : '';
+    if (!apiKey) {
+        if (typeof showToast === 'function') showToast('API Key harus diisi', 'error');
+        else alert('API Key harus diisi');
+        return;
+    }
+
+    let detectedProvider = 'OpenAI';
+    if (apiKey.startsWith('AIzaSy')) {
+        detectedProvider = 'Gemini';
+    } else if (apiKey.startsWith('sk-')) {
+        detectedProvider = 'OpenAI';
+    } else if (apiKey.startsWith('sk-or-v1-') || apiKey.startsWith('sk-or-')) {
+        detectedProvider = 'OpenRouter';
+    } else if (apiKey.startsWith('gsk_')) {
+        detectedProvider = 'Groq';
+    } else if (apiKey.startsWith('sk-') && apiKey.includes('deepseek')) {
+        detectedProvider = 'DeepSeek';
+    }
+
+    try {
+        const baseUrl = typeof getApiBaseUrl === 'function' ? getApiBaseUrl() : '';
+        const response = await fetch(baseUrl + '/api/admin/add-global-key', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider: detectedProvider, apiKey, note: '' })
+        });
+
+        const result = await response.json();
+
+        if (result.ok) {
+            if (typeof showToast === 'function') showToast(`Global API Key berhasil ditambahkan (${detectedProvider})`, 'success');
+            if (input) input.value = '';
+            if (typeof renderApiKeysList === 'function') renderApiKeysList();
+            if (typeof updateStats === 'function') updateStats();
+        } else {
+            if (typeof showToast === 'function') showToast(result.error || 'Gagal menambahkan key', 'error');
+        }
+    } catch (err) {
+        if (typeof showToast === 'function') showToast('Error: ' + err.message, 'error');
+    }
+};
+
 function showAdminSection(sec) {
     // Initialize admin sync mode (will create sync button if not exists)
     if (typeof initAdminSyncMode === 'function') {
@@ -650,13 +716,23 @@ function showAdminSection(sec) {
     });
 
     if (sec === 'overview') {
-        if (typeof renderUserLogs === 'function') renderUserLogs();
-        if (typeof updateStats === 'function') updateStats();
-        if (typeof fetchIPs === 'function') fetchIPs();
+        (async () => {
+            if (typeof ensureDataLoaded === 'function') await ensureDataLoaded('results', true, true);
+            if (typeof renderUserLogs === 'function') renderUserLogs();
+            if (typeof renderApiKeysList === 'function') renderApiKeysList();
+            if (typeof updateStats === 'function') await updateStats();
+            if (typeof fetchIPs === 'function') fetchIPs();
+        })();
+
         if (typeof clearInterval === 'function') {
             if (typeof adminStatsPollInterval !== 'undefined' && adminStatsPollInterval) clearInterval(adminStatsPollInterval);
-            adminStatsPollInterval = setInterval(() => {
-                if (typeof updateStats === 'function') updateStats();
+            adminStatsPollInterval = setInterval(async () => {
+                const overviewSec = document.getElementById('admin-overview');
+                if (overviewSec && !overviewSec.classList.contains('hidden')) {
+                    if (typeof fetchAndMerge === 'function') await fetchAndMerge();
+                    if (typeof renderApiKeysList === 'function') renderApiKeysList();
+                    if (typeof updateStats === 'function') await updateStats();
+                }
             }, 5000);
         }
     } else {
