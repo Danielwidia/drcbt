@@ -895,6 +895,7 @@ async function sendResult(result) {
     while (attempts > 0 && !success) {
         try {
             await send_result_to_server(result);
+            console.log(`[sendResult] ✅ Hasil ujian ${result.studentName || result.studentId} (${result.mapel}) berhasil terkirim ke server (/api/result)!`);
             success = true;
             break;
         } catch (e) {
@@ -907,6 +908,7 @@ async function sendResult(result) {
                     body: JSON.stringify([result])
                 });
                 if (fallbackRes.ok) {
+                    console.log(`[sendResult] ✅ Hasil ujian ${result.studentName || result.studentId} (${result.mapel}) berhasil terkirim ke server (/api/results)!`);
                     success = true;
                     break;
                 }
@@ -919,6 +921,7 @@ async function sendResult(result) {
                     body: JSON.stringify({ results: [result] })
                 });
                 if (dbRes.ok) {
+                    console.log(`[sendResult] ✅ Hasil ujian ${result.studentName || result.studentId} (${result.mapel}) berhasil terkirim ke server (/api/db)!`);
                     success = true;
                     break;
                 }
@@ -941,7 +944,7 @@ async function save(options = {}) {
     // Their results are handled separately via sendResult().
     const isStudent = currentSiswa && currentSiswa.role === 'student';
     if (isStudent && !options.forceServerSave) {
-        console.log('[SAVE] Skipping server push for student role. Local persistence only.');
+        console.log('[SAVE] Peran siswa: penimpaan DB utama dilewati (hasil disinkron via sendResult). Menyimpan ke IndexedDB lokal.');
         try {
             await saveLocalDb();
             updateStats();
