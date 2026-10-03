@@ -148,6 +148,7 @@ const loadedCollections = {
 };
 
 let _hasLoadedFlags = { questions: false, students: false, results: false };
+let _inFlightLoads = {};
 
 async function ensureDataLoaded(type, force = false, silent = false) {
     if (window.isStaticMode) return;
@@ -176,59 +177,70 @@ async function ensureDataLoaded(type, force = false, silent = false) {
         }
     }
 
-    console.log(`[LAZY-LOAD] Fetching ${type} on-demand...`);
-    if (!silent && typeof showToast === 'function') {
-        showToast(`Memuat data ${type}...`, 'info');
+    // Deduplicate in-flight requests to prevent concurrent redundant fetches
+    if (_inFlightLoads[type]) {
+        return _inFlightLoads[type];
     }
 
-    try {
-        let res;
-        if (type === 'questions') {
-            res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/questions?limit=-1', {}, 5000);
-            if (res.ok) {
-                const data = await res.json();
-                db.questions = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
-                _hasLoadedFlags.questions = true;
-            }
-        } else if (type === 'students') {
-            res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/students', {}, 5000);
-            if (res.ok) {
-                const data = await res.json();
-                if (Array.isArray(data) && data.length > 0) {
-                    const adminUser = Array.isArray(db.students)
-                        ? db.students.find(x => x.role === 'admin')
-                        : null;
-                    if (adminUser && !data.some(x => x.role === 'admin' && x.id === adminUser.id)) {
-                        data.unshift(adminUser);
-                    }
-                    db.students = data;
-                } else {
-                    db.students = Array.isArray(db.students) && db.students.length > 0
-                        ? db.students
-                        : [{ id: 'ADM', password: 'admin321', name: 'Administrator', role: 'admin' }];
+    _inFlightLoads[type] = (async () => {
+        console.log(`[LAZY-LOAD] Fetching ${type} on-demand...`);
+        if (!silent && typeof showToast === 'function') {
+            showToast(`Memuat data ${type}...`, 'info');
+        }
+
+        try {
+            let res;
+            if (type === 'questions') {
+                res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/questions?limit=-1', {}, 12000);
+                if (res.ok) {
+                    const data = await res.json();
+                    db.questions = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
+                    _hasLoadedFlags.questions = true;
                 }
-                _hasLoadedFlags.students = true;
+            } else if (type === 'students') {
+                res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/students', {}, 12000);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (Array.isArray(data) && data.length > 0) {
+                        const adminUser = Array.isArray(db.students)
+                            ? db.students.find(x => x.role === 'admin')
+                            : null;
+                        if (adminUser && !data.some(x => x.role === 'admin' && x.id === adminUser.id)) {
+                            data.unshift(adminUser);
+                        }
+                        db.students = data;
+                    } else {
+                        db.students = Array.isArray(db.students) && db.students.length > 0
+                            ? db.students
+                            : [{ id: 'ADM', password: 'admin321', name: 'Administrator', role: 'admin' }];
+                    }
+                    _hasLoadedFlags.students = true;
+                }
+            } else if (type === 'results') {
+                res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/results?limit=-1', {}, 15000);
+                if (res.ok) {
+                    const data = await res.json();
+                    const serverResults = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
+                    db.results = mergeResults(db.results, serverResults);
+                    _hasLoadedFlags.results = true;
+                }
             }
-        } else if (type === 'results') {
-            res = await fetchJsonWithTimeout(getApiBaseUrl() + '/api/results?limit=-1', {}, 5000);
-            if (res.ok) {
-                const data = await res.json();
-                const serverResults = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
-                db.results = mergeResults(db.results, serverResults);
-                _hasLoadedFlags.results = true;
+
+            if (loadedCollections.hasOwnProperty(type)) {
+                loadedCollections[type] = true;
             }
+
+            console.log(`[LAZY-LOAD] ✅ ${type} loaded:`, db[type]?.length);
+        } catch (e) {
+            console.warn(`[LAZY-LOAD] Failed to load ${type}:`, e.message);
+        } finally {
+            delete _inFlightLoads[type];
         }
+    })();
 
-
-        if (loadedCollections.hasOwnProperty(type)) {
-            loadedCollections[type] = true;
-        }
-
-        console.log(`[LAZY-LOAD] ✅ ${type} loaded:`, db[type]?.length);
-    } catch (e) {
-        console.warn(`[LAZY-LOAD] Failed to load ${type}:`, e.message);
-    }
+    return _inFlightLoads[type];
 }
+window.ensureDataLoaded = ensureDataLoaded;
 
 function mergeResults(localArr = [], serverArr = []) {
     const map = new Map();
