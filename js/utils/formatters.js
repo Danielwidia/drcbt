@@ -89,8 +89,14 @@ async function updateStats() {
     // Also update API stats in overview if available
     if (typeof updateAdminAPIStats === 'function') {
         await updateAdminAPIStats();
+    } else {
+        const activeEl = document.getElementById('stat-api-active');
+        const exhaustedEl = document.getElementById('stat-api-exhausted');
+        if (activeEl && typeof window.globalApiKeysActive !== 'undefined') activeEl.innerText = window.globalApiKeysActive;
+        if (exhaustedEl && typeof window.globalApiKeysExhausted !== 'undefined') exhaustedEl.innerText = window.globalApiKeysExhausted;
     }
 }
+window.updateStats = updateStats;
 
 function updateCompletionCharts() {
     if (!document.getElementById('admin-rombel') || document.getElementById('admin-rombel').classList.contains('hidden')) return;
