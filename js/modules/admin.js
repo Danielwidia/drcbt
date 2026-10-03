@@ -676,13 +676,21 @@ function showAdminSection(sec) {
     }
 
     if (sec === 'rombel') {
-        if (typeof renderRombelSection === 'function') renderRombelSection();
+        (async () => {
+            if (typeof ensureDataLoaded === 'function') {
+                await ensureDataLoaded('students');
+                await ensureDataLoaded('questions');
+                await ensureDataLoaded('results');
+            }
+            if (typeof renderRombelSection === 'function') renderRombelSection();
+        })();
+
         if (typeof adminRombelPollInterval !== 'undefined' && adminRombelPollInterval) clearInterval(adminRombelPollInterval);
         adminRombelPollInterval = setInterval(async () => {
             const adminSection = document.getElementById('admin-rombel');
             if (adminSection && !adminSection.classList.contains('hidden')) {
-                const changed = typeof syncAdminLiveState === 'function' ? await syncAdminLiveState() : false;
-                if (changed && typeof renderRombelProgress === 'function') renderRombelProgress();
+                if (typeof syncAdminLiveState === 'function') await syncAdminLiveState();
+                if (typeof renderRombelProgress === 'function') renderRombelProgress();
             }
         }, 1000);
     } else if (typeof adminRombelPollInterval !== 'undefined' && adminRombelPollInterval) {
@@ -1901,4 +1909,220 @@ function renderAdminStudents() {
 }
 
 window.renderAdminStudents = renderAdminStudents;
+
+// ===== LIVE EXAM ADMIN ACTIONS & SYNC =====
+function findActiveExamForStudent(studentId) {
+    if (!Array.isArray(window.db?.activeExams)) return null;
+    const norm = v => String(v || '').trim().toLowerCase();
+    const nid = norm(studentId);
+    return window.db.activeExams.find(e => norm(e.studentId) === nid);
+}
+
+function parseLiveExamTimestamp(val) {
+    if (!val && val !== 0) return Date.now();
+    if (typeof val === 'number') return val;
+    const str = String(val).trim();
+    if (/^\d+$/.test(str)) {
+        let ms = Number(str);
+        if (str.length === 10) ms *= 1000;
+        return ms;
+    }
+    const parsed = Date.parse(str);
+    return Number.isNaN(parsed) ? Date.now() : parsed;
+}
+
+async function requestStudentSave(studentId) {
+    const activeExam = findActiveExamForStudent(studentId);
+    if (!activeExam) {
+        if (typeof showToast === 'function') showToast('Tidak ada sesi ujian aktif untuk siswa ini.', 'warning');
+        return;
+    }
+
+    const saveEntry = {
+        ...activeExam,
+        adminSaveRequest: true,
+        adminReloadRequest: activeExam.adminReloadRequest || false,
+        adminSaveConfirmed: true,
+        updatedAt: Date.now(),
+        adminSavedProgress: {
+            studentId: activeExam.studentId,
+            studentName: activeExam.studentName,
+            rombel: activeExam.rombel,
+            mapel: activeExam.mapel,
+            answers: Array.isArray(activeExam.answers) ? activeExam.answers : [],
+            currentIdx: typeof activeExam.currentIdx === 'number' ? activeExam.currentIdx : 0,
+            ragu: Array.isArray(activeExam.ragu) ? activeExam.ragu : [],
+            totalSeconds: activeExam.totalSeconds || 0,
+            remainingSeconds: activeExam.timeRemaining || activeExam.remainingSeconds || 0,
+            savedAt: Date.now()
+        }
+    };
+    if (Array.isArray(activeExam.answers)) saveEntry.answers = activeExam.answers;
+    if (typeof activeExam.currentIdx === 'number') saveEntry.currentIdx = activeExam.currentIdx;
+
+    activeExam.adminSavedProgress = saveEntry.adminSavedProgress;
+    activeExam.adminSaveConfirmed = true;
+    activeExam.savedByAdminCommand = true;
+    activeExam.adminSaveRequest = true;
+    activeExam.updatedAt = saveEntry.updatedAt;
+
+    try {
+        if (typeof sendLiveExamToServer === 'function') await sendLiveExamToServer(saveEntry);
+        if (typeof saveLocalDb === 'function') await saveLocalDb();
+        if (typeof showToast === 'function') showToast(`✅ Jawaban ${activeExam.studentName || 'siswa'} tersimpan ke server. Siswa dapat melanjutkan ujian setelah reload/login.`, 'success');
+        if (typeof renderRombelProgress === 'function') renderRombelProgress();
+    } catch (err) {
+        console.warn('[requestStudentSave] error:', err.message || err);
+        if (typeof showToast === 'function') showToast('Gagal menyimpan jawaban siswa ke server.', 'error');
+    }
+}
+
+async function requestStudentReload(studentId) {
+    const activeExam = findActiveExamForStudent(studentId);
+    if (!activeExam) {
+        if (typeof showToast === 'function') showToast('Tidak ada sesi ujian aktif.', 'warning');
+        return;
+    }
+    const reloadEntry = { ...activeExam, adminReloadRequest: Date.now(), updatedAt: Date.now() };
+    try {
+        if (typeof sendLiveExamToServer === 'function') await sendLiveExamToServer(reloadEntry);
+        if (typeof showToast === 'function') showToast(`✅ Permintaan RELOAD terkirim ke ${activeExam.studentName}.`, 'success');
+    } catch (e) {
+        console.error('[requestStudentReload] Error:', e.message);
+    }
+}
+
+async function requestStudentClearAnswers(studentId) {
+    const activeExam = findActiveExamForStudent(studentId);
+    if (!activeExam) {
+        if (typeof showToast === 'function') showToast('Tidak ada sesi ujian aktif.', 'warning');
+        return;
+    }
+
+    if (!confirm(`Hapus SEMUA JAWABAN ${activeExam.studentName} untuk mapel ${activeExam.mapel}?\n\nPERINGATAN: Tindakan ini tidak dapat dibatalkan.`)) {
+        return;
+    }
+
+    const clearEntry = {
+        ...activeExam,
+        adminClearRequest: Date.now(),
+        adminDeleteCheckpoint: true,
+        adminSaveConfirmed: false,
+        savedByAdminCommand: false,
+        adminReloadRequest: false,
+        updatedAt: Date.now(),
+        adminSavedProgress: null,
+        answers: Array.isArray(activeExam.answers) ? activeExam.answers.map(ans => {
+            if (Array.isArray(ans)) return [];
+            if (typeof ans === 'string') return '';
+            return null;
+        }) : []
+    };
+
+    try {
+        if (typeof sendLiveExamToServer === 'function') await sendLiveExamToServer(clearEntry);
+
+        const localIndex = (window.db?.activeExams || []).findIndex(e => String(e.studentId) === String(activeExam.studentId));
+        if (localIndex >= 0) {
+            window.db.activeExams[localIndex] = {
+                ...window.db.activeExams[localIndex],
+                answers: clearEntry.answers,
+                adminSavedProgress: null,
+                adminSaveConfirmed: false,
+                updatedAt: Date.now()
+            };
+        }
+
+        try {
+            if (typeof STUDENT_ADMIN_SAVED_PROGRESS_KEY !== 'undefined') {
+                localStorage.removeItem(STUDENT_ADMIN_SAVED_PROGRESS_KEY);
+            }
+        } catch (e) {}
+
+        if (typeof saveLocalDb === 'function') await saveLocalDb();
+
+        if (typeof showToast === 'function') showToast(`✅ Progres dan Jawaban ${activeExam.studentName} telah dihapus permanen.`, 'success');
+        if (typeof renderRombelProgress === 'function') renderRombelProgress();
+    } catch (e) {
+        console.error('[requestStudentClearAnswers] Error:', e.message);
+    }
+}
+
+async function syncAdminLiveState() {
+    const adminSection = document.getElementById('admin-rombel');
+    const teacherProgressSection = document.getElementById('teacher-tab-live-progress');
+    const isAdminActive = adminSection && !adminSection.classList.contains('hidden');
+    const isTeacherProgressActive = teacherProgressSection && !teacherProgressSection.classList.contains('hidden');
+
+    if (!isAdminActive && !isTeacherProgressActive) return false;
+
+    try {
+        let changed = false;
+        const now = Date.now();
+        const fiveMinMs = 5 * 60 * 1000;
+        const norm = v => String(v || '').trim().toLowerCase();
+
+        const other = typeof loadLocalDb === 'function' ? await loadLocalDb() : null;
+
+        let serverExams = [];
+        if (navigator.onLine && typeof fetchLiveExamsFromServer === 'function') {
+            try {
+                serverExams = await fetchLiveExamsFromServer();
+            } catch (e) {
+                console.warn('[syncAdminLiveState] Server fetch failed:', e.message);
+            }
+        }
+
+        const mergedExams = {};
+
+        const localExams = Array.isArray(window.db?.activeExams) ? window.db.activeExams : ((other && Array.isArray(other.activeExams)) ? other.activeExams : []);
+        localExams.forEach(exam => {
+            if (!exam || !exam.studentId || !exam.mapel) return;
+            const key = `${norm(exam.studentId)}|${norm(exam.mapel)}`;
+            const updatedAt = parseLiveExamTimestamp(exam.updatedAt);
+            if (now - updatedAt < fiveMinMs) {
+                mergedExams[key] = exam;
+            }
+        });
+
+        serverExams.forEach(exam => {
+            if (!exam || !exam.studentId || !exam.mapel) return;
+            const key = `${norm(exam.studentId)}|${norm(exam.mapel)}`;
+            exam.isActive = true;
+            mergedExams[key] = exam;
+        });
+
+        const finalExams = Object.values(mergedExams);
+
+        const oldLen = (window.db?.activeExams || []).length;
+        const newLen = finalExams.length;
+
+        let contentChanged = oldLen !== newLen;
+        if (!contentChanged && newLen > 0) {
+            contentChanged = finalExams.some((exam) => {
+                const old = (window.db?.activeExams || []).find(oe => norm(oe.studentId) === norm(exam.studentId) && norm(oe.mapel) === norm(exam.mapel));
+                return !old || old.updatedAt !== exam.updatedAt || old.percentage !== exam.percentage || old.currentQuestionNumber !== exam.currentQuestionNumber;
+            });
+        }
+
+        window.db.activeExams = finalExams;
+
+        if (contentChanged || (oldLen === 0 && newLen > 0)) {
+            changed = true;
+            if (typeof saveLocalDb === 'function') await saveLocalDb();
+        }
+
+        return changed;
+    } catch (err) {
+        console.warn('Gagal sinkronisasi admin live state:', err.message || err);
+        return false;
+    }
+}
+
+window.findActiveExamForStudent = findActiveExamForStudent;
+window.requestStudentSave = requestStudentSave;
+window.requestStudentReload = requestStudentReload;
+window.requestStudentClearAnswers = requestStudentClearAnswers;
+window.syncAdminLiveState = syncAdminLiveState;
+
 
