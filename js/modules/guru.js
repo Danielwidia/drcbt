@@ -655,7 +655,7 @@ function exportGradesToExcel() {
 }
 
 async function renderTeacherResults() {
-    await ensureDataLoaded('results');
+    await ensureDataLoaded('results', true, true);
     const mapelSelect = document.getElementById('teacher-results-filter-mapel');
     const rombelSelect = document.getElementById('teacher-results-filter-rombel');
     const tbody = document.getElementById('teacher-results-table-body');

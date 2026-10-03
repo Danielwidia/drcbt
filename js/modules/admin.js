@@ -756,7 +756,7 @@ window.showAdminSection = showAdminSection;
 
 if (typeof window.renderAdminResults !== 'function') {
     async function renderAdminResults() {
-        if (typeof ensureDataLoaded === 'function') await ensureDataLoaded('results');
+        if (typeof ensureDataLoaded === 'function') await ensureDataLoaded('results', true, true);
 
         const tbody = document.getElementById('results-table-body');
         if (!tbody) return;
