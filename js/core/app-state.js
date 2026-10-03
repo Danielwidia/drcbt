@@ -328,7 +328,13 @@ function deleteResult(idx) {
     db.results[idx].deleted = true;
     db.results[idx].updatedAt = Date.now();
     if (typeof updateCompletionCharts === 'function') updateCompletionCharts();
-    if (typeof save === 'function') save();
+    
+    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+        if (typeof adminSave === 'function') adminSave();
+        if (typeof markAdminChanges === 'function') markAdminChanges();
+    } else if (typeof save === 'function') {
+        save();
+    }
 
     if (document.getElementById('results-table-body')) {
         if (typeof renderAdminResults === 'function') renderAdminResults();
@@ -364,11 +370,21 @@ function clearAllResults() {
         updatedAt: now
     }));
 
-    if (typeof save === 'function') save();
+    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+        if (typeof adminSave === 'function') adminSave();
+        if (typeof markAdminChanges === 'function') markAdminChanges();
+    } else if (typeof save === 'function') {
+        save();
+    }
+
     if (typeof updateCompletionCharts === 'function') updateCompletionCharts();
     if (typeof renderAdminResults === 'function') renderAdminResults();
 
-    alert('Semua hasil ujian telah dihapus secara permanen.');
+    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+        alert('Semua hasil ujian telah dihapus secara lokal. Klik tombol Sinkron di kanan bawah untuk menyimpan ke server.');
+    } else {
+        alert('Semua hasil ujian telah dihapus secara permanen.');
+    }
 }
 window.clearAllResults = clearAllResults;
 
@@ -396,11 +412,21 @@ function cleanIncompleteResults() {
         return r;
     });
 
-    if (typeof save === 'function') save();
+    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+        if (typeof adminSave === 'function') adminSave();
+        if (typeof markAdminChanges === 'function') markAdminChanges();
+    } else if (typeof save === 'function') {
+        save();
+    }
+
     if (typeof updateCompletionCharts === 'function') updateCompletionCharts();
     if (typeof renderAdminResults === 'function') renderAdminResults();
 
-    alert(`✅ ${incompleteResults.length} hasil ujian yang tidak lengkap telah dihapus.`);
+    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+        alert(`✅ ${incompleteResults.length} hasil ujian yang tidak lengkap telah dihapus secara lokal. Klik tombol Sinkron di kanan bawah untuk menyimpan ke server.`);
+    } else {
+        alert(`✅ ${incompleteResults.length} hasil ujian yang tidak lengkap telah dihapus.`);
+    }
 }
 window.cleanIncompleteResults = cleanIncompleteResults;
 
