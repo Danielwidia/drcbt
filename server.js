@@ -3502,7 +3502,7 @@ app.get('/api/teacher/realtime-stats', async (req, res) => {
 });
 
 // ─── API: Get Global API Keys ─────────────────────────────────────────────
-app.get('/api/teacher/global-api-keys', async (req, res) => {
+app.get(['/api/teacher/global-api-keys', '/api/admin/global-api-keys'], async (req, res) => {
     try {
         let keys = [];
         let activeCount = 0;
