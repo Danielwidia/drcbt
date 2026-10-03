@@ -149,7 +149,7 @@ const loadedCollections = {
 
 let _hasLoadedFlags = { questions: false, students: false, results: false };
 
-async function ensureDataLoaded(type, force = false) {
+async function ensureDataLoaded(type, force = false, silent = false) {
     if (window.isStaticMode) return;
 
     // If not forced, check flags and existing data
@@ -177,7 +177,9 @@ async function ensureDataLoaded(type, force = false) {
     }
 
     console.log(`[LAZY-LOAD] Fetching ${type} on-demand...`);
-    showToast(`Memuat data ${type}...`, 'info');
+    if (!silent && typeof showToast === 'function') {
+        showToast(`Memuat data ${type}...`, 'info');
+    }
 
     try {
         let res;
@@ -286,6 +288,21 @@ function mergeResults(localArr = [], serverArr = []) {
     });
     return Array.from(map.values());
 }
+
+async function fetchAndMerge() {
+    try {
+        await ensureDataLoaded('results', true, true);
+        if (document.getElementById('admin-results') && !document.getElementById('admin-results').classList.contains('hidden')) {
+            if (typeof renderAdminResults === 'function') renderAdminResults();
+        }
+        if (document.getElementById('teacher-dashboard') && !document.getElementById('teacher-dashboard').classList.contains('hidden')) {
+            if (typeof renderTeacherResults === 'function') renderTeacherResults();
+        }
+    } catch (e) {
+        console.warn('[fetchAndMerge] Error polling results:', e.message || e);
+    }
+}
+window.fetchAndMerge = fetchAndMerge;
 
 window.addEventListener('storage', async e => {
     if (e.key !== DB_KEY) return;
