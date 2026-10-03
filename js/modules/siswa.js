@@ -1682,14 +1682,18 @@ async function submitExam() {
         }
     }
 
-    if (directSyncError || backgroundSaveError) {
+    // Kondisi gagal HANYA jika kedua mekanisme penyimpanan gagal total.
+    // save() lokal untuk siswa tidak pernah throw (hanya IDB), jadi backgroundSaveError selalu null.
+    // Jika sendResult() berhasil -> nilai sudah di server -> sukses.
+    // Jika sendResult() gagal tapi local save OK -> data aman di lokal, retry di background, tetap sukses.
+    // Hanya tampilkan modal gagal jika sendResult() DAN local save keduanya gagal.
+    if (directSyncError && backgroundSaveError) {
         // Hapus entry yang gagal dari state agar tidak dobel saat ditekan "Coba Lagi"
         db.results.pop();
 
         const failModal = document.getElementById('failed-result');
         if (failModal) {
-            let errMsg = "Koneksi ke server terputus atau gagal terakses.";
-            if (backgroundSaveError) errMsg = "Penyimpanan lokal dan server mengalami masalah.";
+            const errMsg = "Koneksi ke server terputus dan penyimpanan lokal gagal.";
             document.getElementById('failed-result-msg').innerHTML = `${errMsg}<br>Silakan periksa koneksi internet atau server, lalu <b>coba lagi</b>.`;
             failModal.classList.remove('hidden');
             const scoreRes = document.getElementById('score-result');
@@ -1698,6 +1702,24 @@ async function submitExam() {
             alert('GAGAL TERSIMPAN: Periksa koneksi Anda dan coba lagi.');
         }
         return; // Stop here, so we don't show the success UI
+    }
+
+    // Jika sendResult() gagal tapi local save OK, retry pengiriman ke server di background
+    if (directSyncError && !backgroundSaveError) {
+        console.warn('[SUBMIT] Server tidak dapat dihubungi saat submit. Data tersimpan lokal, mencoba retry di background...');
+        (async () => {
+            for (let attempt = 1; attempt <= 5; attempt++) {
+                await new Promise(r => setTimeout(r, attempt * 3000));
+                try {
+                    await sendResult(newEntry);
+                    console.log(`[SUBMIT] ✅ Background retry berhasil pada percobaan ke-${attempt}`);
+                    return;
+                } catch (retryErr) {
+                    console.warn(`[SUBMIT] Background retry ke-${attempt} gagal:`, retryErr.message || retryErr);
+                }
+            }
+            console.error('[SUBMIT] Semua background retry gagal. Data tersimpan lokal, butuh sync manual oleh admin.');
+        })();
     }
 
     clearStudentExamProgress();
