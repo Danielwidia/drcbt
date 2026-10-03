@@ -232,10 +232,17 @@ async function ensureDataLoaded(type, force = false, silent = false) {
 
 function mergeResults(localArr = [], serverArr = []) {
     const map = new Map();
+    const norm = v => String(v || '').trim().toLowerCase();
     const makeKey = r => {
         if (!r || typeof r !== 'object') return JSON.stringify(r);
-        if (r.id) return r.id;
-        return `${r.studentId || ''}-${r.mapel || ''}-${r.rombel || ''}-${r.date || ''}`;
+        const sid = norm(r.studentId || r.student_id);
+        const mapel = norm(r.mapel);
+        const rombel = norm(r.rombel);
+        if (sid && mapel) {
+            return `${sid}|${mapel}|${rombel}`;
+        }
+        if (r.id) return String(r.id);
+        return `${sid || 'unknown'}-${mapel || 'unknown'}-${rombel || 'unknown'}-${r.date || ''}`;
     };
 
     const getTimestamp = r => {
