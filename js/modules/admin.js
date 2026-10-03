@@ -1173,7 +1173,11 @@ if (typeof window.cleanCorruptedResults !== 'function') {
             }
             if (typeof updateCompletionCharts === 'function') updateCompletionCharts();
             if (typeof renderAdminResults === 'function') renderAdminResults();
-            alert(`✅ SUKSES!\n\n${cleanedCount} hasil ujian corrupt telah dibersihkan dan disimpan ke server.`);
+            if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+                alert(`✅ SUKSES!\n\n${cleanedCount} hasil ujian corrupt telah dibersihkan secara lokal. Klik tombol Sinkron di kanan bawah untuk menyimpan ke server.`);
+            } else {
+                alert(`✅ SUKSES!\n\n${cleanedCount} hasil ujian corrupt telah dibersihkan dan disimpan ke server.`);
+            }
         }
     }
     window.cleanCorruptedResults = cleanCorruptedResults;
