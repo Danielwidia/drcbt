@@ -1458,8 +1458,9 @@ async function submitExam() {
     closeCheatWarning();
     clearInterval(examData.timer);
 
-    // Hide question UI immediately so it doesn't look "stuck"
-    document.getElementById('exam-screen').classList.add('hidden');
+    // Hide question UI and exam list immediately so it doesn't look "stuck"
+    if (document.getElementById('exam-screen')) document.getElementById('exam-screen').classList.add('hidden');
+    if (document.getElementById('student-exam-list')) document.getElementById('student-exam-list').classList.add('hidden');
 
     // Show processing modal
     const savingModal = document.getElementById('saving-modal');
@@ -1746,10 +1747,13 @@ async function submitExam() {
     const successModal = document.getElementById('score-result');
     if (successModal) successModal.classList.remove('hidden');
     const studentExamList = document.getElementById('student-exam-list');
-    if (studentExamList) studentExamList.classList.remove('hidden');
+    if (studentExamList) studentExamList.classList.add('hidden'); // Ensure exam list is HIDDEN so score screen is clean
+    const examScreen = document.getElementById('exam-screen');
+    if (examScreen) examScreen.classList.add('hidden');
     const failModalUI = document.getElementById('failed-result');
     if (failModalUI) failModalUI.classList.add('hidden');
-    document.getElementById('final-score-val').innerText = score;
+    const scoreValEl = document.getElementById('final-score-val');
+    if (scoreValEl) scoreValEl.innerText = score;
 }
 
 let currentZoomQuestion = null;
