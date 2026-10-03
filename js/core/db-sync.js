@@ -178,78 +178,82 @@ function normalizeDb(d, existing = {}) {
 }
 
 function migrateRombels() {
-    const legacyRombels = ['VII', 'VIII', 'IX'];
-    const hasLegacy = db.rombels && db.rombels.some(r => legacyRombels.includes(r));
+    try {
+        const legacyRombels = ['VII', 'VIII', 'IX'];
+        const hasLegacy = db.rombels && db.rombels.some(r => legacyRombels.includes(r));
 
-    if (hasLegacy) {
-        console.log('[MIGRATION] Migrating rombels to Phase D format...');
+        if (hasLegacy) {
+            console.log('[MIGRATION] Migrating rombels to Phase D format...');
 
-        const mapping = {
-            'VII': 'Fase D (Kelas 7)',
-            'VIII': 'Fase D (Kelas 8)',
-            'IX': 'Fase D (Kelas 9)'
-        };
+            const mapping = {
+                'VII': 'Fase D (Kelas 7)',
+                'VIII': 'Fase D (Kelas 8)',
+                'IX': 'Fase D (Kelas 9)'
+            };
 
-        // Update db.rombels
-        db.rombels = db.rombels.map(r => mapping[r] || r);
-        // Ensure unique and sorted
-        db.rombels = [...new Set(db.rombels)];
+            // Update db.rombels
+            db.rombels = db.rombels.map(r => mapping[r] || r);
+            // Ensure unique and sorted
+            db.rombels = [...new Set(db.rombels)];
 
-        // Update questions
-        db.questions.forEach(q => {
-            if (mapping[q.rombel]) q.rombel = mapping[q.rombel];
-        });
+            // Update questions
+            db.questions.forEach(q => {
+                if (mapping[q.rombel]) q.rombel = mapping[q.rombel];
+            });
 
-        // Update students
-        db.students.forEach(s => {
-            if (mapping[s.rombel]) s.rombel = mapping[s.rombel];
-            if (s.role === 'teacher' && s.subjects) {
-                s.subjects.forEach(subj => {
-                    if (subj.rombels) {
-                        subj.rombels = subj.rombels.map(r => mapping[r] || r);
+            // Update students
+            db.students.forEach(s => {
+                if (mapping[s.rombel]) s.rombel = mapping[s.rombel];
+                if (s.role === 'teacher' && s.subjects) {
+                    s.subjects.forEach(subj => {
+                        if (subj.rombels) {
+                            subj.rombels = subj.rombels.map(r => mapping[r] || r);
+                        }
+                    });
+                }
+                if (s.role === 'teacher' && s.rombels) {
+                    s.rombels = s.rombels.map(r => mapping[r] || r);
+                }
+            });
+
+            // Update results
+            db.results.forEach(r => {
+                if (mapping[r.rombel]) r.rombel = mapping[r.rombel];
+            });
+
+            // Update schedules
+            if (db.schedules) {
+                db.schedules = db.schedules.map(k => {
+                    const parts = k.split('|');
+                    if (parts.length === 2 && mapping[parts[0]]) {
+                        return `${mapping[parts[0]]}|${parts[1]}`;
                     }
+                    return k;
                 });
             }
-            if (s.role === 'teacher' && s.rombels) {
-                s.rombels = s.rombels.map(r => mapping[r] || r);
-            }
-        });
 
-        // Update results
-        db.results.forEach(r => {
-            if (mapping[r.rombel]) r.rombel = mapping[r.rombel];
-        });
-
-        // Update schedules
-        if (db.schedules) {
-            db.schedules = db.schedules.map(k => {
-                const parts = k.split('|');
-                if (parts.length === 2 && mapping[parts[0]]) {
-                    return `${mapping[parts[0]]}|${parts[1]}`;
-                }
-                return k;
-            });
-        }
-
-        // Update timeLimits (keys are usually stored as lowercase)
-        if (db.timeLimits) {
-            const newLimits = {};
-            for (const k in db.timeLimits) {
-                let newKey = k;
-                for (const oldR in mapping) {
-                    if (k.toLowerCase().startsWith(oldR.toLowerCase() + '|')) {
-                        const subjectPart = k.split('|')[1] || '';
-                        newKey = (mapping[oldR] + '|' + subjectPart).toLowerCase().trim();
-                        break;
+            // Update timeLimits (keys are usually stored as lowercase)
+            if (db.timeLimits) {
+                const newLimits = {};
+                for (const k in db.timeLimits) {
+                    let newKey = k;
+                    for (const oldR in mapping) {
+                        if (k.toLowerCase().startsWith(oldR.toLowerCase() + '|')) {
+                            const subjectPart = k.split('|')[1] || '';
+                            newKey = (mapping[oldR] + '|' + subjectPart).toLowerCase().trim();
+                            break;
+                        }
                     }
+                    newLimits[newKey] = db.timeLimits[k];
                 }
-                newLimits[newKey] = db.timeLimits[k];
+                db.timeLimits = newLimits;
             }
-            db.timeLimits = newLimits;
-        }
 
-        saveLocalDb();
-        console.log('[MIGRATION] Rombel migration complete.');
+            saveLocalDb();
+            console.log('[MIGRATION] Rombel migration complete.');
+        }
+    } catch (e) {
+        console.warn('[MIGRATION] Rombel migration error:', e);
     }
 }
 
@@ -266,40 +270,44 @@ function migrateTeacherData() {
 }
 
 function migrateQuestionTypes() {
-    if (!Array.isArray(db.questions)) return;
-    let changed = false;
-    const mapping = {
-        // Benar/Salah variants
-        'boolean': 'tf',
-        'benar_salah': 'tf',
-        'true_false': 'tf',
-        'bs': 'tf',
-        // Matching variants
-        'jodohkan': 'matching',
-        'pasangkan': 'matching',
-        'pairing': 'matching',
-        'match': 'matching',
-        // Essay variants
-        'essay': 'text',
-        'isian': 'text',
-        'uraian': 'text',
-        // PG variants
-        'pg': 'single',
-        'pilihan_ganda': 'single',
-        'multiple_choice': 'single'
-    };
+    try {
+        if (!Array.isArray(db.questions)) return;
+        let changed = false;
+        const mapping = {
+            // Benar/Salah variants
+            'boolean': 'tf',
+            'benar_salah': 'tf',
+            'true_false': 'tf',
+            'bs': 'tf',
+            // Matching variants
+            'jodohkan': 'matching',
+            'pasangkan': 'matching',
+            'pairing': 'matching',
+            'match': 'matching',
+            // Essay variants
+            'essay': 'text',
+            'isian': 'text',
+            'uraian': 'text',
+            // PG variants
+            'pg': 'single',
+            'pilihan_ganda': 'single',
+            'multiple_choice': 'single'
+        };
 
-    db.questions.forEach(q => {
-        const oldType = String(q.type || 'single').toLowerCase().trim();
-        if (mapping[oldType]) {
-            q.type = mapping[oldType];
-            changed = true;
+        db.questions.forEach(q => {
+            const oldType = String(q.type || 'single').toLowerCase().trim();
+            if (mapping[oldType]) {
+                q.type = mapping[oldType];
+                changed = true;
+            }
+        });
+
+        if (changed) {
+            saveLocalDb();
+            console.log('[MIGRATION] Question types normalized.');
         }
-    });
-
-    if (changed) {
-        saveLocalDb();
-        console.log('[MIGRATION] Question types normalized.');
+    } catch (e) {
+        console.warn('[MIGRATION] Question type migration error:', e);
     }
 }
 
