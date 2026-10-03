@@ -1,7 +1,7 @@
 /**
  * DR CBT - Combined Application Bundle
  * Generated from modular files in js/
- * Last Built: 2026-10-02T15:49:42.645Z
+ * Last Built: 2026-10-03T01:42:45.372Z
  */
 
 
@@ -157,7 +157,7 @@ const loadedCollections = {
 
 let _hasLoadedFlags = { questions: false, students: false, results: false };
 
-async function ensureDataLoaded(type, force = false) {
+async function ensureDataLoaded(type, force = false, silent = false) {
     if (window.isStaticMode) return;
 
     // If not forced, check flags and existing data
@@ -185,7 +185,9 @@ async function ensureDataLoaded(type, force = false) {
     }
 
     console.log(`[LAZY-LOAD] Fetching ${type} on-demand...`);
-    showToast(`Memuat data ${type}...`, 'info');
+    if (!silent && typeof showToast === 'function') {
+        showToast(`Memuat data ${type}...`, 'info');
+    }
 
     try {
         let res;
@@ -238,10 +240,17 @@ async function ensureDataLoaded(type, force = false) {
 
 function mergeResults(localArr = [], serverArr = []) {
     const map = new Map();
+    const norm = v => String(v || '').trim().toLowerCase();
     const makeKey = r => {
         if (!r || typeof r !== 'object') return JSON.stringify(r);
-        if (r.id) return r.id;
-        return `${r.studentId || ''}-${r.mapel || ''}-${r.rombel || ''}-${r.date || ''}`;
+        const sid = norm(r.studentId || r.student_id);
+        const mapel = norm(r.mapel);
+        const rombel = norm(r.rombel);
+        if (sid && mapel) {
+            return `${sid}|${mapel}|${rombel}`;
+        }
+        if (r.id) return String(r.id);
+        return `${sid || 'unknown'}-${mapel || 'unknown'}-${rombel || 'unknown'}-${r.date || ''}`;
     };
 
     const getTimestamp = r => {
@@ -294,6 +303,21 @@ function mergeResults(localArr = [], serverArr = []) {
     });
     return Array.from(map.values());
 }
+
+async function fetchAndMerge() {
+    try {
+        await ensureDataLoaded('results', true, true);
+        if (document.getElementById('admin-results') && !document.getElementById('admin-results').classList.contains('hidden')) {
+            if (typeof renderAdminResults === 'function') renderAdminResults();
+        }
+        if (document.getElementById('teacher-dashboard') && !document.getElementById('teacher-dashboard').classList.contains('hidden')) {
+            if (typeof renderTeacherResults === 'function') renderTeacherResults();
+        }
+    } catch (e) {
+        console.warn('[fetchAndMerge] Error polling results:', e.message || e);
+    }
+}
+window.fetchAndMerge = fetchAndMerge;
 
 window.addEventListener('storage', async e => {
     if (e.key !== DB_KEY) return;
@@ -747,6 +771,145 @@ function clearSession() {
     }
 }
 
+function logout() {
+    // Stop any active exam timer
+    if (typeof isExamActive !== 'undefined') isExamActive = false;
+
+    // Save exam progress to localStorage before logging out
+    if (currentSiswa && currentSiswa.role === 'student') {
+        if (typeof saveStudentExamProgress === 'function') {
+            try { saveStudentExamProgress(); } catch (e) { /* ignore */ }
+        }
+        // Fire-and-forget live exam status update
+        if (navigator.onLine && typeof updateLiveExamStatus === 'function') {
+            updateLiveExamStatus(false).catch(e => console.warn('[logout] updateLiveExamStatus:', e.message));
+        }
+    }
+
+    clearSession();
+
+    // Small delay so localStorage write completes before redirect
+    setTimeout(() => {
+        window.location.href = 'index.html';
+    }, 300);
+}
+
+window.logout = logout;
+
+async function logActivity(activity) {
+    if (!currentSiswa) return;
+    try {
+        await fetch(getApiBaseUrl() + '/api/logs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: currentSiswa.id,
+                userName: currentSiswa.name,
+                role: currentSiswa.role,
+                activity: activity
+            })
+        });
+    } catch (e) {
+        console.warn('[logActivity] Failed:', e.message);
+    }
+}
+
+function showError(customMsg) {
+    const err = document.getElementById('login-error');
+    if (!err) return;
+    const defaultRoleMsg = window.loginType === 'teacher' ? 'Password default: 123456' : 'Password default: 123456';
+    err.innerHTML = (customMsg || `ID atau password salah!`) + `<br><span class="text-[10px] opacity-70 mt-1 block tracking-tight">• ${defaultRoleMsg}</span>`;
+    err.classList.remove('hidden');
+}
+window.showError = showError;
+
+async function handleLogin() {
+    const usernameEl = document.getElementById('username');
+    const passwordEl = document.getElementById('password');
+    if (!usernameEl || !passwordEl) return;
+
+    const u = usernameEl.value.trim().toUpperCase();
+    const p = passwordEl.value.trim();
+
+    if (!u || !p) {
+        showError('ID dan password tidak boleh kosong.');
+        return;
+    }
+
+    if (!db.students || db.students.length === 0) {
+        alert('Database belum siap. Silakan refresh halaman.');
+        return;
+    }
+
+    // Cari berdasarkan ID tepat
+    let user = db.students.find(x => x && x.id && String(x.id).toUpperCase() === u && String(x.password) === p);
+
+    // Fallback: cari berdasarkan nama
+    if (!user) {
+        const nameSearch = u.toLowerCase();
+        if (window.loginType === 'student') {
+            user = db.students.find(x =>
+                x && x.name && String(x.name).toLowerCase().includes(nameSearch) &&
+                String(x.password) === p && x.role === 'student'
+            );
+        } else if (window.loginType === 'admin' || window.loginType === 'teacher') {
+            user = db.students.find(x =>
+                x && x.name && String(x.name).toLowerCase().includes(nameSearch) &&
+                String(x.password) === p && x.role === window.loginType
+            );
+        }
+    }
+
+    if (user) {
+        const roleMatch = (window.loginType === user.role) || (!window.loginType);
+        console.log('User found:', user.name, '| Role matches:', roleMatch);
+
+        if (roleMatch) {
+            currentSiswa = user;
+            window.currentSiswa = user;
+            if (user.role === 'student' && typeof updateCompletionCharts === 'function') updateCompletionCharts();
+            saveSession();
+
+            try { await logActivity('Login ke aplikasi'); } catch (e) { /* ignore */ }
+
+            if (user.role === 'admin') window.location.href = 'admin.html';
+            else if (user.role === 'student') window.location.href = 'siswa.html';
+            else if (user.role === 'teacher') window.location.href = 'guru.html';
+        } else {
+            console.log('Role mismatch - Expected:', window.loginType, 'Actual:', user.role);
+            showError(`Akun ini terdaftar sebagai ${user.role}. Silakan klik menu login yang sesuai.`);
+        }
+    } else {
+        const idOnlyMatch = db.students.find(x => x && x.id && String(x.id).toUpperCase() === u);
+        if (idOnlyMatch) {
+            showError('ID ditemukan, tapi password salah. Coba lagi.');
+        } else {
+            showError('ID atau Nama tidak ditemukan. Pastikan data sudah tersimpan di Admin.');
+        }
+    }
+}
+window.handleLogin = handleLogin;
+
+// Bind login button + Enter key
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('login-btn');
+    if (btn) btn.addEventListener('click', handleLogin);
+
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+
+    if (usernameInput) {
+        usernameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleLogin();
+        });
+    }
+    if (passwordInput) {
+        passwordInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleLogin();
+        });
+    }
+});
+
 async function send_result_to_server(result) {
     const res = await fetch(getApiBaseUrl() + '/api/result', {
         method: 'POST',
@@ -764,6 +927,7 @@ async function sendResult(result) {
     while (attempts > 0 && !success) {
         try {
             await send_result_to_server(result);
+            console.log(`[sendResult] ✅ Hasil ujian ${result.studentName || result.studentId} (${result.mapel}) berhasil terkirim ke server (/api/result)!`);
             success = true;
             break;
         } catch (e) {
@@ -776,6 +940,7 @@ async function sendResult(result) {
                     body: JSON.stringify([result])
                 });
                 if (fallbackRes.ok) {
+                    console.log(`[sendResult] ✅ Hasil ujian ${result.studentName || result.studentId} (${result.mapel}) berhasil terkirim ke server (/api/results)!`);
                     success = true;
                     break;
                 }
@@ -788,6 +953,7 @@ async function sendResult(result) {
                     body: JSON.stringify({ results: [result] })
                 });
                 if (dbRes.ok) {
+                    console.log(`[sendResult] ✅ Hasil ujian ${result.studentName || result.studentId} (${result.mapel}) berhasil terkirim ke server (/api/db)!`);
                     success = true;
                     break;
                 }
@@ -810,7 +976,7 @@ async function save(options = {}) {
     // Their results are handled separately via sendResult().
     const isStudent = currentSiswa && currentSiswa.role === 'student';
     if (isStudent && !options.forceServerSave) {
-        console.log('[SAVE] Skipping server push for student role. Local persistence only.');
+        console.log('[SAVE] Peran siswa: penimpaan DB utama dilewati (hasil disinkron via sendResult). Menyimpan ke IndexedDB lokal.');
         try {
             await saveLocalDb();
             updateStats();
@@ -1122,78 +1288,82 @@ function normalizeDb(d, existing = {}) {
 }
 
 function migrateRombels() {
-    const legacyRombels = ['VII', 'VIII', 'IX'];
-    const hasLegacy = db.rombels && db.rombels.some(r => legacyRombels.includes(r));
+    try {
+        const legacyRombels = ['VII', 'VIII', 'IX'];
+        const hasLegacy = db.rombels && db.rombels.some(r => legacyRombels.includes(r));
 
-    if (hasLegacy) {
-        console.log('[MIGRATION] Migrating rombels to Phase D format...');
+        if (hasLegacy) {
+            console.log('[MIGRATION] Migrating rombels to Phase D format...');
 
-        const mapping = {
-            'VII': 'Fase D (Kelas 7)',
-            'VIII': 'Fase D (Kelas 8)',
-            'IX': 'Fase D (Kelas 9)'
-        };
+            const mapping = {
+                'VII': 'Fase D (Kelas 7)',
+                'VIII': 'Fase D (Kelas 8)',
+                'IX': 'Fase D (Kelas 9)'
+            };
 
-        // Update db.rombels
-        db.rombels = db.rombels.map(r => mapping[r] || r);
-        // Ensure unique and sorted
-        db.rombels = [...new Set(db.rombels)];
+            // Update db.rombels
+            db.rombels = db.rombels.map(r => mapping[r] || r);
+            // Ensure unique and sorted
+            db.rombels = [...new Set(db.rombels)];
 
-        // Update questions
-        db.questions.forEach(q => {
-            if (mapping[q.rombel]) q.rombel = mapping[q.rombel];
-        });
+            // Update questions
+            db.questions.forEach(q => {
+                if (mapping[q.rombel]) q.rombel = mapping[q.rombel];
+            });
 
-        // Update students
-        db.students.forEach(s => {
-            if (mapping[s.rombel]) s.rombel = mapping[s.rombel];
-            if (s.role === 'teacher' && s.subjects) {
-                s.subjects.forEach(subj => {
-                    if (subj.rombels) {
-                        subj.rombels = subj.rombels.map(r => mapping[r] || r);
+            // Update students
+            db.students.forEach(s => {
+                if (mapping[s.rombel]) s.rombel = mapping[s.rombel];
+                if (s.role === 'teacher' && s.subjects) {
+                    s.subjects.forEach(subj => {
+                        if (subj.rombels) {
+                            subj.rombels = subj.rombels.map(r => mapping[r] || r);
+                        }
+                    });
+                }
+                if (s.role === 'teacher' && s.rombels) {
+                    s.rombels = s.rombels.map(r => mapping[r] || r);
+                }
+            });
+
+            // Update results
+            db.results.forEach(r => {
+                if (mapping[r.rombel]) r.rombel = mapping[r.rombel];
+            });
+
+            // Update schedules
+            if (db.schedules) {
+                db.schedules = db.schedules.map(k => {
+                    const parts = k.split('|');
+                    if (parts.length === 2 && mapping[parts[0]]) {
+                        return `${mapping[parts[0]]}|${parts[1]}`;
                     }
+                    return k;
                 });
             }
-            if (s.role === 'teacher' && s.rombels) {
-                s.rombels = s.rombels.map(r => mapping[r] || r);
-            }
-        });
 
-        // Update results
-        db.results.forEach(r => {
-            if (mapping[r.rombel]) r.rombel = mapping[r.rombel];
-        });
-
-        // Update schedules
-        if (db.schedules) {
-            db.schedules = db.schedules.map(k => {
-                const parts = k.split('|');
-                if (parts.length === 2 && mapping[parts[0]]) {
-                    return `${mapping[parts[0]]}|${parts[1]}`;
-                }
-                return k;
-            });
-        }
-
-        // Update timeLimits (keys are usually stored as lowercase)
-        if (db.timeLimits) {
-            const newLimits = {};
-            for (const k in db.timeLimits) {
-                let newKey = k;
-                for (const oldR in mapping) {
-                    if (k.toLowerCase().startsWith(oldR.toLowerCase() + '|')) {
-                        const subjectPart = k.split('|')[1] || '';
-                        newKey = (mapping[oldR] + '|' + subjectPart).toLowerCase().trim();
-                        break;
+            // Update timeLimits (keys are usually stored as lowercase)
+            if (db.timeLimits) {
+                const newLimits = {};
+                for (const k in db.timeLimits) {
+                    let newKey = k;
+                    for (const oldR in mapping) {
+                        if (k.toLowerCase().startsWith(oldR.toLowerCase() + '|')) {
+                            const subjectPart = k.split('|')[1] || '';
+                            newKey = (mapping[oldR] + '|' + subjectPart).toLowerCase().trim();
+                            break;
+                        }
                     }
+                    newLimits[newKey] = db.timeLimits[k];
                 }
-                newLimits[newKey] = db.timeLimits[k];
+                db.timeLimits = newLimits;
             }
-            db.timeLimits = newLimits;
-        }
 
-        saveLocalDb();
-        console.log('[MIGRATION] Rombel migration complete.');
+            saveLocalDb();
+            console.log('[MIGRATION] Rombel migration complete.');
+        }
+    } catch (e) {
+        console.warn('[MIGRATION] Rombel migration error:', e);
     }
 }
 
@@ -1210,40 +1380,44 @@ function migrateTeacherData() {
 }
 
 function migrateQuestionTypes() {
-    if (!Array.isArray(db.questions)) return;
-    let changed = false;
-    const mapping = {
-        // Benar/Salah variants
-        'boolean': 'tf',
-        'benar_salah': 'tf',
-        'true_false': 'tf',
-        'bs': 'tf',
-        // Matching variants
-        'jodohkan': 'matching',
-        'pasangkan': 'matching',
-        'pairing': 'matching',
-        'match': 'matching',
-        // Essay variants
-        'essay': 'text',
-        'isian': 'text',
-        'uraian': 'text',
-        // PG variants
-        'pg': 'single',
-        'pilihan_ganda': 'single',
-        'multiple_choice': 'single'
-    };
+    try {
+        if (!Array.isArray(db.questions)) return;
+        let changed = false;
+        const mapping = {
+            // Benar/Salah variants
+            'boolean': 'tf',
+            'benar_salah': 'tf',
+            'true_false': 'tf',
+            'bs': 'tf',
+            // Matching variants
+            'jodohkan': 'matching',
+            'pasangkan': 'matching',
+            'pairing': 'matching',
+            'match': 'matching',
+            // Essay variants
+            'essay': 'text',
+            'isian': 'text',
+            'uraian': 'text',
+            // PG variants
+            'pg': 'single',
+            'pilihan_ganda': 'single',
+            'multiple_choice': 'single'
+        };
 
-    db.questions.forEach(q => {
-        const oldType = String(q.type || 'single').toLowerCase().trim();
-        if (mapping[oldType]) {
-            q.type = mapping[oldType];
-            changed = true;
+        db.questions.forEach(q => {
+            const oldType = String(q.type || 'single').toLowerCase().trim();
+            if (mapping[oldType]) {
+                q.type = mapping[oldType];
+                changed = true;
+            }
+        });
+
+        if (changed) {
+            saveLocalDb();
+            console.log('[MIGRATION] Question types normalized.');
         }
-    });
-
-    if (changed) {
-        saveLocalDb();
-        console.log('[MIGRATION] Question types normalized.');
+    } catch (e) {
+        console.warn('[MIGRATION] Question type migration error:', e);
     }
 }
 
@@ -1902,6 +2076,346 @@ window.insertOptionSymbol = insertOptionSymbol;
     }
 
 })();
+
+// ===== ROMBEL & LIVE RENDERING HELPERS =====
+function getSubjectName(subject) {
+    if (!subject) return '';
+    return typeof subject === 'string' ? subject : (subject.name || '');
+}
+
+function populateSelects(ids, includeAll = false) {
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const list = id.includes('mapel') ? (window.db?.subjects || []) : (window.db?.rombels || []);
+        let html = includeAll ? `<option value="ALL">SEMUA</option>` : '';
+        html += list.map(item => {
+            const val = id.includes('mapel') ? getSubjectName(item) : item;
+            const display = id.includes('mapel') ? getSubjectName(item) : item;
+            return `<option value="${val}">${display}</option>`;
+        }).join('');
+        el.innerHTML = html;
+    });
+}
+
+function deleteMapel(name) {
+    if (confirm(`Hapus mata pelajaran "${name}"?`)) {
+        window.db.subjects = (window.db?.subjects || []).filter(s => getSubjectName(s) !== name);
+        if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode && typeof adminSave === 'function') {
+            adminSave();
+            if (typeof markAdminChanges === 'function') markAdminChanges();
+        } else if (typeof save === 'function') {
+            save();
+        }
+        renderRombelSection();
+    }
+}
+
+function deleteRombel(name) {
+    if (confirm(`Hapus rombel "${name}"?`)) {
+        window.db.rombels = (window.db?.rombels || []).filter(r => r !== name);
+        if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode && typeof adminSave === 'function') {
+            adminSave();
+            if (typeof markAdminChanges === 'function') markAdminChanges();
+        } else if (typeof save === 'function') {
+            save();
+        }
+        renderRombelSection();
+    }
+}
+
+function renderRombelSection() {
+    const mapelList = document.getElementById('mapel-list');
+    const rombelList = document.getElementById('rombel-list');
+
+    if (mapelList) {
+        mapelList.innerHTML = (window.db?.subjects || []).map(s => {
+            const name = getSubjectName(s);
+            const safeName = String(name).replace(/'/g, "\\'");
+            return `
+                <div class="group flex items-center justify-between p-3.5 bg-slate-50 hover:bg-white hover:ring-1 hover:ring-sky-100 rounded-2xl transition-all">
+                    <div class="flex items-center gap-3">
+                        <i class="fas fa-bookmark text-[10px] text-sky-300"></i>
+                        <span class="text-xs font-bold text-slate-700">${name}</span>
+                    </div>
+                    <button onclick="deleteMapel('${safeName}')" class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100">
+                        <i class="fas fa-trash-alt text-[10px]"></i>
+                    </button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    if (rombelList) {
+        rombelList.innerHTML = (window.db?.rombels || []).map(r => {
+            const safeRombel = String(r).replace(/'/g, "\\'");
+            return `
+                <div class="group flex items-center justify-between p-3.5 bg-slate-50 hover:bg-white hover:ring-1 hover:ring-emerald-100 rounded-2xl transition-all">
+                    <div class="flex items-center gap-3">
+                        <i class="fas fa-graduation-cap text-[10px] text-emerald-300"></i>
+                        <span class="text-xs font-bold text-slate-700">${r}</span>
+                    </div>
+                    <button onclick="deleteRombel('${safeRombel}')" class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100">
+                        <i class="fas fa-trash-alt text-[10px]"></i>
+                    </button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    const progressFilter = document.getElementById('progress-filter-rombel');
+    if (progressFilter) {
+        const current = progressFilter.value;
+        progressFilter.innerHTML = '<option value="">Semua</option>' +
+            (window.db?.rombels || []).map(r => `<option value="${r}"${r === current ? ' selected' : ''}>${r}</option>`).join('');
+    }
+    const progressMapel = document.getElementById('progress-filter-mapel');
+    if (progressMapel) {
+        const currentMapel = progressMapel.value;
+        progressMapel.innerHTML = '<option value="">Semua</option>' +
+            (window.db?.subjects || []).map(s => `<option value="${getSubjectName(s)}"${getSubjectName(s) === currentMapel ? ' selected' : ''}>${getSubjectName(s)}</option>`).join('');
+    }
+
+    // Teacher Progress Filters
+    const teacherProgressRombel = document.getElementById('teacher-progress-filter-rombel');
+    const isTeacher = window.currentSiswa && window.currentSiswa.role === 'teacher';
+
+    if (teacherProgressRombel) {
+        const current = teacherProgressRombel.value;
+        const availableRombels = isTeacher ? (typeof teacherCombinedRombels === 'function' ? teacherCombinedRombels(window.currentSiswa) : (window.db?.rombels || [])) : (window.db?.rombels || []);
+        teacherProgressRombel.innerHTML = '<option value="">Semua</option>' +
+            availableRombels.map(r => `<option value="${r}"${r === current ? ' selected' : ''}>${r}</option>`).join('');
+    }
+
+    const teacherProgressMapel = document.getElementById('teacher-progress-filter-mapel');
+    if (teacherProgressMapel) {
+        const currentMapel = teacherProgressMapel.value;
+        const availableMapels = isTeacher ? (typeof teacherSubjectNames === 'function' ? teacherSubjectNames(window.currentSiswa) : (window.db?.subjects || [])) : (window.db?.subjects || []);
+        teacherProgressMapel.innerHTML = '<option value="">Semua</option>' +
+            availableMapels.map(s => {
+                const name = typeof s === 'string' ? s : getSubjectName(s);
+                return `<option value="${name}"${name === currentMapel ? ' selected' : ''}>${name}</option>`;
+            }).join('');
+    }
+
+    renderRombelProgress();
+}
+
+function renderRombelProgress() {
+    const adminEl = document.getElementById('admin-rombel');
+    const teacherEl = document.getElementById('teacher-tab-live-progress');
+    const isAdminVisible = adminEl && !adminEl.classList.contains('hidden');
+    const isTeacherVisible = teacherEl && !teacherEl.classList.contains('hidden');
+
+    let progressList, filterSelect, mapelSelect;
+
+    if (isTeacherVisible) {
+        progressList = document.getElementById('teacher-rombel-progress-list');
+        filterSelect = document.getElementById('teacher-progress-filter-rombel');
+        mapelSelect = document.getElementById('teacher-progress-filter-mapel');
+    } else {
+        progressList = document.getElementById('rombel-progress-list');
+        filterSelect = document.getElementById('progress-filter-rombel');
+        mapelSelect = document.getElementById('progress-filter-mapel');
+    }
+
+    if (!progressList) {
+        return;
+    }
+
+    const selectedRombel = filterSelect ? filterSelect.value : '';
+    const selectedMapel = mapelSelect ? mapelSelect.value : '';
+
+    const questionsList = Array.isArray(window.db?.questions) ? window.db.questions : [];
+    const questionsByRombel = questionsList.reduce((acc, q) => {
+        if (!q.rombel || !q.mapel) return acc;
+        if (!acc[q.rombel]) acc[q.rombel] = new Set();
+        const mapelName = typeof q.mapel === 'string' ? q.mapel : q.mapel.name;
+        if (mapelName) acc[q.rombel].add(mapelName);
+        return acc;
+    }, {});
+
+    function formatTimeRemaining(seconds) {
+        if (seconds <= 0) return 'Waktu habis';
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+        if (hrs > 0) {
+            return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    function formatLastSeen(updatedAt) {
+        if (!updatedAt) return 'Never';
+        const now = Date.now();
+        const diff = Math.floor((now - new Date(updatedAt).getTime()) / 1000);
+        if (diff < 2) return 'Baru saja';
+        if (diff < 60) return `${diff} detik lalu`;
+        return `${Math.floor(diff / 60)} menit lalu`;
+    }
+
+    let list = (Array.isArray(window.db?.students) ? window.db.students : []).filter(s => s.role !== 'admin');
+
+    if (isTeacherVisible && window.currentSiswa && window.currentSiswa.role === 'teacher') {
+        const allowedRombels = typeof teacherCombinedRombels === 'function' ? teacherCombinedRombels(window.currentSiswa) : [];
+        list = list.filter(s => allowedRombels.includes(s.rombel));
+    }
+
+    list = list.filter(s => !selectedRombel || s.rombel === selectedRombel)
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    if (list.length === 0) {
+        progressList.innerHTML = `<div class="px-6 py-8 text-center text-slate-500 rounded-3xl border border-dashed border-slate-200">Tidak ada siswa untuk ditampilkan.</div>`;
+        return;
+    }
+
+    const html = list.map(s => {
+        const isTeacher = isTeacherVisible && window.currentSiswa && window.currentSiswa.role === 'teacher';
+        const teacherMapels = isTeacher && typeof teacherSubjectNames === 'function' ? teacherSubjectNames(window.currentSiswa) : null;
+
+        const questionsFromRombel = Array.from(questionsByRombel[s.rombel] || []);
+        const allSubjectsFromDb = (window.db?.subjects || []).map(sub => getSubjectName(sub));
+        const rawAvailable = questionsFromRombel.length > 0 ? questionsFromRombel : allSubjectsFromDb;
+        const availableMapels = rawAvailable.filter(m => teacherMapels ? teacherMapels.includes(m) : true);
+
+        const studentResults = (window.db?.results || []).filter(r =>
+            String(r.studentId) === String(s.id) && !r.deleted &&
+            (!selectedMapel ? (teacherMapels ? teacherMapels.includes(r.mapel) : true) : r.mapel === selectedMapel)
+        );
+
+        const completedMapels = new Set(studentResults.map(r => r.mapel));
+        const completedCount = completedMapels.size;
+        const totalMapels = selectedMapel ? (availableMapels.includes(selectedMapel) ? 1 : 0) : availableMapels.length;
+
+        const normStr = v => String(v || '').trim().toLowerCase();
+        const sid = normStr(s.id);
+        const srom = normStr(s.rombel);
+
+        const activeEntry = (window.db?.activeExams || []).find(e => {
+            const sameId = normStr(e.studentId) === sid;
+            const sameRombel = !e.rombel || !s.rombel || normStr(e.rombel) === srom;
+            const sameMapel = !selectedMapel ?
+                (teacherMapels ? teacherMapels.some(tm => normStr(tm) === normStr(e.mapel)) : true) :
+                normStr(e.mapel) === normStr(selectedMapel);
+
+            return sameId && sameRombel && sameMapel;
+        });
+
+        const progress = activeEntry ? activeEntry.percentage : (totalMapels ? Math.round((completedCount / totalMapels) * 100) : 0);
+        const averageScore = studentResults.length ? (studentResults.reduce((sum, r) => sum + Number(r.score || 0), 0) / studentResults.length).toFixed(1) : '-';
+
+        let infoText = '';
+        let timeAlertClass = '';
+        let barHtml = '';
+
+        if (activeEntry) {
+            const timeRemainingText = formatTimeRemaining(activeEntry.timeRemaining || 0);
+            const correctCount = activeEntry.correctCount || 0;
+            const totalItems = activeEntry.totalItems || activeEntry.totalQuestions || 100;
+            const answeredItems = activeEntry.answeredItemsCount || 0;
+            const answeredQuestions = activeEntry.answeredCount || 0;
+
+            const lastSeenText = formatLastSeen(activeEntry.updatedAt);
+            infoText = `Sedang ujian ${activeEntry.mapel || '-'} • ${answeredQuestions}/${activeEntry.totalQuestions || 0} Terjawab • ${activeEntry.percentage || 0}% dijawab • ${correctCount} benar • Sisa waktu: ${timeRemainingText} • <span class="text-[10px] text-emerald-400 font-bold">${lastSeenText}</span>`;
+
+            if ((activeEntry.timeRemaining || 0) < 300 && (activeEntry.timeRemaining || 0) > 0) {
+                timeAlertClass = ' border-l-4 border-l-red-500 bg-red-50';
+            }
+
+            const correctPercent = (correctCount / totalItems) * 100;
+            const remainingProgressPercent = Math.max(0, ((answeredItems - correctCount) / totalItems) * 100);
+
+            let greenWidth = correctPercent;
+            let blueWidth = remainingProgressPercent;
+            if (greenWidth === 0 && blueWidth === 0 && activeEntry.percentage > 0) {
+                blueWidth = activeEntry.percentage;
+            }
+
+            barHtml = `
+                <div class="mt-4 h-2.5 w-full rounded-full bg-slate-200 overflow-hidden flex shadow-inner border border-slate-100">
+                    <div class="h-full bg-emerald-500 transition-all duration-700 ease-out" style="width:${greenWidth}%" title="${correctCount} Benar"></div>
+                    <div class="h-full bg-sky-400 transition-all duration-700 ease-out" style="width:${blueWidth}%" title="Progres Lainnya"></div>
+                </div>
+            `;
+        } else {
+            infoText = selectedMapel
+                ? totalMapels
+                    ? (completedCount > 0 ? `Selesai ${selectedMapel} • Rata-rata skor ${averageScore === '-' ? '-' : averageScore + '%'}` : `Belum mengerjakan ${selectedMapel}`)
+                    : `Mapel ${selectedMapel} tidak tersedia di rombel ${s.rombel}`
+                : totalMapels
+                    ? `${completedCount}/${totalMapels} mapel selesai • Rata-rata skor ${averageScore === '-' ? '-' : averageScore + '%'}`
+                    : 'Belum ada mata pelajaran aktif untuk rombel ini.';
+
+            barHtml = `
+                <div class="mt-4 h-2.5 w-full rounded-full bg-slate-200 overflow-hidden shadow-inner border border-slate-100">
+                    <div class="h-full rounded-full bg-emerald-500 transition-all duration-700 ease-out" style="width:${progress}%;"></div>
+                </div>
+            `;
+        }
+
+        const safeId = String(s.id).replace(/'/g, "\\'");
+
+        const saveIcon = activeEntry ? `
+            <button onclick="requestStudentSave('${safeId}')" title="Simpan Progres Siswa" 
+                class="w-7 h-7 flex items-center justify-center bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-all ml-2">
+                <i class="fas fa-save text-xs"></i>
+            </button>` : '';
+
+        const reloadIcon = activeEntry ? `
+            <button onclick="requestStudentReload('${safeId}')" title="Reload Tab Siswa" 
+                class="w-7 h-7 flex items-center justify-center bg-sky-50 text-sky-600 rounded-lg hover:bg-sky-100 transition-all">
+                <i class="fas fa-sync-alt text-xs"></i>
+            </button>` : '';
+
+        const clearIcon = activeEntry ? `
+            <button onclick="requestStudentClearAnswers('${safeId}')" title="Hapus Jawaban Siswa" 
+                class="w-7 h-7 flex items-center justify-center bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-all">
+                <i class="fas fa-trash-alt text-xs"></i>
+            </button>` : '';
+
+        const statusBadge = activeEntry
+            ? `<div class="flex items-center gap-1">
+                <span class="px-3 py-1 bg-sky-100 text-sky-700 rounded-full text-[10px] font-black uppercase">Sedang mengerjakan</span>
+                ${saveIcon}
+                ${clearIcon}
+                ${reloadIcon}
+               </div>`
+            : '<span class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-black uppercase">Tidak sedang mengerjakan</span>';
+
+        const requestBadges = activeEntry ? [
+            activeEntry.adminSaveRequest ? '<span class="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-black uppercase">Permintaan SIMPAN terkirim</span>' : null,
+            activeEntry.adminReloadRequest ? '<span class="px-3 py-1 bg-sky-100 text-sky-700 rounded-full text-[10px] font-black uppercase">Permintaan RELOAD terkirim</span>' : null
+        ].filter(Boolean).join(' ') : '';
+
+        return `
+            <div class="p-4 bg-slate-50 rounded-3xl border border-slate-100${timeAlertClass} transition-all duration-300 hover:shadow-md">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <div class="flex items-center gap-2 mb-2">${statusBadge}</div>
+                        <p class="text-xs text-slate-500">Nama Siswa</p>
+                        <p class="font-black text-slate-800">${s.name}</p>
+                        <p class="text-xs text-slate-500">${s.rombel} • ${infoText}</p>
+                        ${requestBadges ? `<div class="mt-3 flex flex-wrap gap-2">${requestBadges}</div>` : ''}
+                    </div>
+                    <div class="text-right">
+                        <span class="text-sm font-black text-slate-800">${progress}%</span>
+                    </div>
+                </div>
+                ${barHtml}
+            </div>`;
+    }).join('');
+
+    progressList.innerHTML = html;
+}
+
+window.getSubjectName = getSubjectName;
+window.populateSelects = populateSelects;
+window.deleteMapel = deleteMapel;
+window.deleteRombel = deleteRombel;
+window.renderRombelSection = renderRombelSection;
+window.renderRombelProgress = renderRombelProgress;
+
 
 
 
@@ -3817,8 +4331,9 @@ async function submitExam() {
     closeCheatWarning();
     clearInterval(examData.timer);
 
-    // Hide question UI immediately so it doesn't look "stuck"
-    document.getElementById('exam-screen').classList.add('hidden');
+    // Hide question UI and exam list immediately so it doesn't look "stuck"
+    if (document.getElementById('exam-screen')) document.getElementById('exam-screen').classList.add('hidden');
+    if (document.getElementById('student-exam-list')) document.getElementById('student-exam-list').classList.add('hidden');
 
     // Show processing modal
     const savingModal = document.getElementById('saving-modal');
@@ -4041,14 +4556,18 @@ async function submitExam() {
         }
     }
 
-    if (directSyncError || backgroundSaveError) {
+    // Kondisi gagal HANYA jika kedua mekanisme penyimpanan gagal total.
+    // save() lokal untuk siswa tidak pernah throw (hanya IDB), jadi backgroundSaveError selalu null.
+    // Jika sendResult() berhasil -> nilai sudah di server -> sukses.
+    // Jika sendResult() gagal tapi local save OK -> data aman di lokal, retry di background, tetap sukses.
+    // Hanya tampilkan modal gagal jika sendResult() DAN local save keduanya gagal.
+    if (directSyncError && backgroundSaveError) {
         // Hapus entry yang gagal dari state agar tidak dobel saat ditekan "Coba Lagi"
         db.results.pop();
 
         const failModal = document.getElementById('failed-result');
         if (failModal) {
-            let errMsg = "Koneksi ke server terputus atau gagal terakses.";
-            if (backgroundSaveError) errMsg = "Penyimpanan lokal dan server mengalami masalah.";
+            const errMsg = "Koneksi ke server terputus dan penyimpanan lokal gagal.";
             document.getElementById('failed-result-msg').innerHTML = `${errMsg}<br>Silakan periksa koneksi internet atau server, lalu <b>coba lagi</b>.`;
             failModal.classList.remove('hidden');
             const scoreRes = document.getElementById('score-result');
@@ -4059,7 +4578,30 @@ async function submitExam() {
         return; // Stop here, so we don't show the success UI
     }
 
+    // Jika sendResult() gagal tapi local save OK, retry pengiriman ke server di background
+    if (directSyncError && !backgroundSaveError) {
+        console.warn('[SUBMIT] Server tidak dapat dihubungi saat submit. Data tersimpan lokal, mencoba retry di background...');
+        (async () => {
+            for (let attempt = 1; attempt <= 5; attempt++) {
+                await new Promise(r => setTimeout(r, attempt * 3000));
+                try {
+                    await sendResult(newEntry);
+                    console.log(`[SUBMIT] ✅ Background retry berhasil pada percobaan ke-${attempt}`);
+                    return;
+                } catch (retryErr) {
+                    console.warn(`[SUBMIT] Background retry ke-${attempt} gagal:`, retryErr.message || retryErr);
+                }
+            }
+            console.error('[SUBMIT] Semua background retry gagal. Data tersimpan lokal, butuh sync manual oleh admin.');
+        })();
+    }
+
     clearStudentExamProgress();
+
+    // Refresh student exam list so if they reload or navigate, the UI is already updated
+    if (typeof renderStudentExamList === 'function') {
+        renderStudentExamList();
+    }
 
     // refresh admin/teacher views if they're visible so the new score
     // shows up right away
@@ -4077,9 +4619,14 @@ async function submitExam() {
 
     const successModal = document.getElementById('score-result');
     if (successModal) successModal.classList.remove('hidden');
+    const studentExamList = document.getElementById('student-exam-list');
+    if (studentExamList) studentExamList.classList.add('hidden'); // Ensure exam list is HIDDEN so score screen is clean
+    const examScreen = document.getElementById('exam-screen');
+    if (examScreen) examScreen.classList.add('hidden');
     const failModalUI = document.getElementById('failed-result');
     if (failModalUI) failModalUI.classList.add('hidden');
-    document.getElementById('final-score-val').innerText = score;
+    const scoreValEl = document.getElementById('final-score-val');
+    if (scoreValEl) scoreValEl.innerText = score;
 }
 
 let currentZoomQuestion = null;
@@ -5292,7 +5839,7 @@ function exportGradesToExcel() {
 }
 
 async function renderTeacherResults() {
-    await ensureDataLoaded('results');
+    await ensureDataLoaded('results', true, true);
     const mapelSelect = document.getElementById('teacher-results-filter-mapel');
     const rombelSelect = document.getElementById('teacher-results-filter-rombel');
     const tbody = document.getElementById('teacher-results-table-body');
@@ -8346,13 +8893,21 @@ function showAdminSection(sec) {
     }
 
     if (sec === 'rombel') {
-        if (typeof renderRombelSection === 'function') renderRombelSection();
+        (async () => {
+            if (typeof ensureDataLoaded === 'function') {
+                await ensureDataLoaded('students');
+                await ensureDataLoaded('questions');
+                await ensureDataLoaded('results');
+            }
+            if (typeof renderRombelSection === 'function') renderRombelSection();
+        })();
+
         if (typeof adminRombelPollInterval !== 'undefined' && adminRombelPollInterval) clearInterval(adminRombelPollInterval);
         adminRombelPollInterval = setInterval(async () => {
             const adminSection = document.getElementById('admin-rombel');
             if (adminSection && !adminSection.classList.contains('hidden')) {
-                const changed = typeof syncAdminLiveState === 'function' ? await syncAdminLiveState() : false;
-                if (changed && typeof renderRombelProgress === 'function') renderRombelProgress();
+                if (typeof syncAdminLiveState === 'function') await syncAdminLiveState();
+                if (typeof renderRombelProgress === 'function') renderRombelProgress();
             }
         }, 1000);
     } else if (typeof adminRombelPollInterval !== 'undefined' && adminRombelPollInterval) {
@@ -8418,7 +8973,7 @@ window.showAdminSection = showAdminSection;
 
 if (typeof window.renderAdminResults !== 'function') {
     async function renderAdminResults() {
-        if (typeof ensureDataLoaded === 'function') await ensureDataLoaded('results');
+        if (typeof ensureDataLoaded === 'function') await ensureDataLoaded('results', true, true);
 
         const tbody = document.getElementById('results-table-body');
         if (!tbody) return;
@@ -9571,6 +10126,222 @@ function renderAdminStudents() {
 }
 
 window.renderAdminStudents = renderAdminStudents;
+
+// ===== LIVE EXAM ADMIN ACTIONS & SYNC =====
+function findActiveExamForStudent(studentId) {
+    if (!Array.isArray(window.db?.activeExams)) return null;
+    const norm = v => String(v || '').trim().toLowerCase();
+    const nid = norm(studentId);
+    return window.db.activeExams.find(e => norm(e.studentId) === nid);
+}
+
+function parseLiveExamTimestamp(val) {
+    if (!val && val !== 0) return Date.now();
+    if (typeof val === 'number') return val;
+    const str = String(val).trim();
+    if (/^\d+$/.test(str)) {
+        let ms = Number(str);
+        if (str.length === 10) ms *= 1000;
+        return ms;
+    }
+    const parsed = Date.parse(str);
+    return Number.isNaN(parsed) ? Date.now() : parsed;
+}
+
+async function requestStudentSave(studentId) {
+    const activeExam = findActiveExamForStudent(studentId);
+    if (!activeExam) {
+        if (typeof showToast === 'function') showToast('Tidak ada sesi ujian aktif untuk siswa ini.', 'warning');
+        return;
+    }
+
+    const saveEntry = {
+        ...activeExam,
+        adminSaveRequest: true,
+        adminReloadRequest: activeExam.adminReloadRequest || false,
+        adminSaveConfirmed: true,
+        updatedAt: Date.now(),
+        adminSavedProgress: {
+            studentId: activeExam.studentId,
+            studentName: activeExam.studentName,
+            rombel: activeExam.rombel,
+            mapel: activeExam.mapel,
+            answers: Array.isArray(activeExam.answers) ? activeExam.answers : [],
+            currentIdx: typeof activeExam.currentIdx === 'number' ? activeExam.currentIdx : 0,
+            ragu: Array.isArray(activeExam.ragu) ? activeExam.ragu : [],
+            totalSeconds: activeExam.totalSeconds || 0,
+            remainingSeconds: activeExam.timeRemaining || activeExam.remainingSeconds || 0,
+            savedAt: Date.now()
+        }
+    };
+    if (Array.isArray(activeExam.answers)) saveEntry.answers = activeExam.answers;
+    if (typeof activeExam.currentIdx === 'number') saveEntry.currentIdx = activeExam.currentIdx;
+
+    activeExam.adminSavedProgress = saveEntry.adminSavedProgress;
+    activeExam.adminSaveConfirmed = true;
+    activeExam.savedByAdminCommand = true;
+    activeExam.adminSaveRequest = true;
+    activeExam.updatedAt = saveEntry.updatedAt;
+
+    try {
+        if (typeof sendLiveExamToServer === 'function') await sendLiveExamToServer(saveEntry);
+        if (typeof saveLocalDb === 'function') await saveLocalDb();
+        if (typeof showToast === 'function') showToast(`✅ Jawaban ${activeExam.studentName || 'siswa'} tersimpan ke server. Siswa dapat melanjutkan ujian setelah reload/login.`, 'success');
+        if (typeof renderRombelProgress === 'function') renderRombelProgress();
+    } catch (err) {
+        console.warn('[requestStudentSave] error:', err.message || err);
+        if (typeof showToast === 'function') showToast('Gagal menyimpan jawaban siswa ke server.', 'error');
+    }
+}
+
+async function requestStudentReload(studentId) {
+    const activeExam = findActiveExamForStudent(studentId);
+    if (!activeExam) {
+        if (typeof showToast === 'function') showToast('Tidak ada sesi ujian aktif.', 'warning');
+        return;
+    }
+    const reloadEntry = { ...activeExam, adminReloadRequest: Date.now(), updatedAt: Date.now() };
+    try {
+        if (typeof sendLiveExamToServer === 'function') await sendLiveExamToServer(reloadEntry);
+        if (typeof showToast === 'function') showToast(`✅ Permintaan RELOAD terkirim ke ${activeExam.studentName}.`, 'success');
+    } catch (e) {
+        console.error('[requestStudentReload] Error:', e.message);
+    }
+}
+
+async function requestStudentClearAnswers(studentId) {
+    const activeExam = findActiveExamForStudent(studentId);
+    if (!activeExam) {
+        if (typeof showToast === 'function') showToast('Tidak ada sesi ujian aktif.', 'warning');
+        return;
+    }
+
+    if (!confirm(`Hapus SEMUA JAWABAN ${activeExam.studentName} untuk mapel ${activeExam.mapel}?\n\nPERINGATAN: Tindakan ini tidak dapat dibatalkan.`)) {
+        return;
+    }
+
+    const clearEntry = {
+        ...activeExam,
+        adminClearRequest: Date.now(),
+        adminDeleteCheckpoint: true,
+        adminSaveConfirmed: false,
+        savedByAdminCommand: false,
+        adminReloadRequest: false,
+        updatedAt: Date.now(),
+        adminSavedProgress: null,
+        answers: Array.isArray(activeExam.answers) ? activeExam.answers.map(ans => {
+            if (Array.isArray(ans)) return [];
+            if (typeof ans === 'string') return '';
+            return null;
+        }) : []
+    };
+
+    try {
+        if (typeof sendLiveExamToServer === 'function') await sendLiveExamToServer(clearEntry);
+
+        const localIndex = (window.db?.activeExams || []).findIndex(e => String(e.studentId) === String(activeExam.studentId));
+        if (localIndex >= 0) {
+            window.db.activeExams[localIndex] = {
+                ...window.db.activeExams[localIndex],
+                answers: clearEntry.answers,
+                adminSavedProgress: null,
+                adminSaveConfirmed: false,
+                updatedAt: Date.now()
+            };
+        }
+
+        try {
+            if (typeof STUDENT_ADMIN_SAVED_PROGRESS_KEY !== 'undefined') {
+                localStorage.removeItem(STUDENT_ADMIN_SAVED_PROGRESS_KEY);
+            }
+        } catch (e) {}
+
+        if (typeof saveLocalDb === 'function') await saveLocalDb();
+
+        if (typeof showToast === 'function') showToast(`✅ Progres dan Jawaban ${activeExam.studentName} telah dihapus permanen.`, 'success');
+        if (typeof renderRombelProgress === 'function') renderRombelProgress();
+    } catch (e) {
+        console.error('[requestStudentClearAnswers] Error:', e.message);
+    }
+}
+
+async function syncAdminLiveState() {
+    const adminSection = document.getElementById('admin-rombel');
+    const teacherProgressSection = document.getElementById('teacher-tab-live-progress');
+    const isAdminActive = adminSection && !adminSection.classList.contains('hidden');
+    const isTeacherProgressActive = teacherProgressSection && !teacherProgressSection.classList.contains('hidden');
+
+    if (!isAdminActive && !isTeacherProgressActive) return false;
+
+    try {
+        let changed = false;
+        const now = Date.now();
+        const fiveMinMs = 5 * 60 * 1000;
+        const norm = v => String(v || '').trim().toLowerCase();
+
+        const other = typeof loadLocalDb === 'function' ? await loadLocalDb() : null;
+
+        let serverExams = [];
+        if (navigator.onLine && typeof fetchLiveExamsFromServer === 'function') {
+            try {
+                serverExams = await fetchLiveExamsFromServer();
+            } catch (e) {
+                console.warn('[syncAdminLiveState] Server fetch failed:', e.message);
+            }
+        }
+
+        const mergedExams = {};
+
+        const localExams = Array.isArray(window.db?.activeExams) ? window.db.activeExams : ((other && Array.isArray(other.activeExams)) ? other.activeExams : []);
+        localExams.forEach(exam => {
+            if (!exam || !exam.studentId || !exam.mapel) return;
+            const key = `${norm(exam.studentId)}|${norm(exam.mapel)}`;
+            const updatedAt = parseLiveExamTimestamp(exam.updatedAt);
+            if (now - updatedAt < fiveMinMs) {
+                mergedExams[key] = exam;
+            }
+        });
+
+        serverExams.forEach(exam => {
+            if (!exam || !exam.studentId || !exam.mapel) return;
+            const key = `${norm(exam.studentId)}|${norm(exam.mapel)}`;
+            exam.isActive = true;
+            mergedExams[key] = exam;
+        });
+
+        const finalExams = Object.values(mergedExams);
+
+        const oldLen = (window.db?.activeExams || []).length;
+        const newLen = finalExams.length;
+
+        let contentChanged = oldLen !== newLen;
+        if (!contentChanged && newLen > 0) {
+            contentChanged = finalExams.some((exam) => {
+                const old = (window.db?.activeExams || []).find(oe => norm(oe.studentId) === norm(exam.studentId) && norm(oe.mapel) === norm(exam.mapel));
+                return !old || old.updatedAt !== exam.updatedAt || old.percentage !== exam.percentage || old.currentQuestionNumber !== exam.currentQuestionNumber;
+            });
+        }
+
+        window.db.activeExams = finalExams;
+
+        if (contentChanged || (oldLen === 0 && newLen > 0)) {
+            changed = true;
+            if (typeof saveLocalDb === 'function') await saveLocalDb();
+        }
+
+        return changed;
+    } catch (err) {
+        console.warn('Gagal sinkronisasi admin live state:', err.message || err);
+        return false;
+    }
+}
+
+window.findActiveExamForStudent = findActiveExamForStudent;
+window.requestStudentSave = requestStudentSave;
+window.requestStudentReload = requestStudentReload;
+window.requestStudentClearAnswers = requestStudentClearAnswers;
+window.syncAdminLiveState = syncAdminLiveState;
+
 
 
 

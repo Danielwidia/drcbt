@@ -328,22 +328,22 @@ async function upsertResult(r) {
     let { data: rows, error: selectError } = await query;
     if (selectError) throw new Error('upsertResult select error: ' + selectError.message);
 
+    const norm = v => String(v || '').trim().toLowerCase();
+    const targetStudent = norm(record.student_id);
+    const targetMapel = norm(record.mapel);
+    const targetRombel = norm(record.rombel);
+
     const existing = (rows || []).find(row => {
         const rowData = dec(row.data) || {};
-        const rowStudent = String(row.student_id ?? rowData.studentId ?? '').trim();
-        const rowMapel = String(row.mapel ?? rowData.mapel ?? '').trim();
-        const rowRombel = String(row.rombel ?? rowData.rombel ?? '').trim();
-        const rowDate = String(row.date ?? rowData.date ?? '').trim();
-        const targetStudent = String(record.student_id || rowData.studentId || '').trim();
-        const targetMapel = String(record.mapel || rowData.mapel || '').trim();
-        const targetRombel = String(record.rombel || rowData.rombel || '').trim();
-        const targetDate = String(record.date || rowData.date || '').trim();
+        const rowStudent = norm(row.student_id ?? rowData.studentId ?? rowData.student_id);
+        const rowMapel = norm(row.mapel ?? rowData.mapel);
+        const rowRombel = norm(row.rombel ?? rowData.rombel);
 
-        if (targetStudent && rowStudent && targetStudent !== rowStudent) return false;
-        if (targetMapel && rowMapel && targetMapel !== rowMapel) return false;
+        if (!targetStudent || !targetMapel) return false;
+        if (rowStudent !== targetStudent) return false;
+        if (rowMapel !== targetMapel) return false;
         if (targetRombel && rowRombel && targetRombel !== rowRombel) return false;
-        if (targetDate && rowDate && targetDate !== rowDate) return false;
-        return Boolean(targetStudent || targetMapel || targetRombel || targetDate);
+        return true;
     });
 
     if (existing) {
@@ -455,23 +455,22 @@ async function setAllResults(resultsArr) {
             created_at: dateVal
         };
 
+        const norm = v => String(v || '').trim().toLowerCase();
+        const targetStudent = norm(record.student_id);
+        const targetMapel = norm(record.mapel);
+        const targetRombel = norm(record.rombel);
+
         const existing = rows.find(row => {
             const rowData = dec(row.data) || {};
-            const rowStudent = String(row.student_id ?? rowData.studentId ?? '').trim();
-            const rowMapel = String(row.mapel ?? rowData.mapel ?? '').trim();
-            const rowRombel = String(row.rombel ?? rowData.rombel ?? '').trim();
-            const rowDate = String(row.date ?? rowData.date ?? '').trim();
+            const rowStudent = norm(row.student_id ?? rowData.studentId ?? rowData.student_id);
+            const rowMapel = norm(row.mapel ?? rowData.mapel);
+            const rowRombel = norm(row.rombel ?? rowData.rombel);
 
-            const targetStudent = String(record.student_id || rowData.studentId || '').trim();
-            const targetMapel = String(record.mapel || rowData.mapel || '').trim();
-            const targetRombel = String(record.rombel || rowData.rombel || '').trim();
-            const targetDate = String(record.date || rowData.date || '').trim();
-
-            if (targetStudent && rowStudent && targetStudent !== rowStudent) return false;
-            if (targetMapel && rowMapel && targetMapel !== rowMapel) return false;
+            if (!targetStudent || !targetMapel) return false;
+            if (rowStudent !== targetStudent) return false;
+            if (rowMapel !== targetMapel) return false;
             if (targetRombel && rowRombel && targetRombel !== rowRombel) return false;
-            if (targetDate && rowDate && targetDate !== rowDate) return false;
-            return Boolean(targetStudent || targetMapel || targetRombel || targetDate);
+            return true;
         });
 
         if (existing) {
