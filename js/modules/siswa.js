@@ -84,6 +84,10 @@ async function saveLiveProgressStateAndReload() {
     reloadPage();
 }
 
+// Expose to global scope so admin.html onclick handlers can call them
+window.saveLiveProgressState = saveLiveProgressState;
+window.saveLiveProgressStateAndReload = saveLiveProgressStateAndReload;
+
 isExamActive = false;
 
 let cheatingCount = 0;
