@@ -2205,4 +2205,66 @@ window.requestStudentReload = requestStudentReload;
 window.requestStudentClearAnswers = requestStudentClearAnswers;
 window.syncAdminLiveState = syncAdminLiveState;
 
+// ===== SAVE ALL LIVE PROGRESS (called from admin.html buttons) =====
+async function saveLiveProgressState(requestReload = false) {
+    if (typeof showToast === 'function') {
+        showToast(requestReload ? 'Memerintahkan RELOAD kepada semua siswa...' : 'Menyimpan live progress semua siswa...', 'info');
+    }
+    try {
+        if (typeof save === 'function') await save({ forceServerSave: true });
+
+        const activeExams = Array.isArray(window.db?.activeExams) ? window.db.activeExams : [];
+        if (!activeExams.length) {
+            if (typeof showToast === 'function') showToast('Tidak ada siswa yang sedang ujian aktif.', 'warning');
+            return;
+        }
+
+        let count = 0;
+        for (const exam of activeExams) {
+            if (!exam.studentId || !exam.mapel) continue;
+            try {
+                const saveEntry = {
+                    ...exam,
+                    adminSaveRequest: true,
+                    adminReloadRequest: requestReload ? Date.now() : (exam.adminReloadRequest || false),
+                    adminSaveConfirmed: true,
+                    updatedAt: Date.now(),
+                    savedByAdminCommand: true,
+                    adminSavedProgress: {
+                        studentId: exam.studentId,
+                        studentName: exam.studentName,
+                        rombel: exam.rombel,
+                        mapel: exam.mapel,
+                        answers: Array.isArray(exam.answers) ? exam.answers : [],
+                        currentIdx: typeof exam.currentIdx === 'number' ? exam.currentIdx : 0,
+                        ragu: Array.isArray(exam.ragu) ? exam.ragu : [],
+                        totalSeconds: exam.totalSeconds || 0,
+                        remainingSeconds: exam.timeRemaining || exam.remainingSeconds || 0,
+                        savedAt: Date.now()
+                    }
+                };
+                if (typeof sendLiveExamToServer === 'function') await sendLiveExamToServer(saveEntry);
+                count++;
+                if (activeExams.length > 5) await new Promise(r => setTimeout(r, 50));
+            } catch (e) {
+                console.warn('[saveLiveProgressState] Failed for ' + exam.studentId + ':', e.message);
+            }
+        }
+
+        if (typeof saveLocalDb === 'function') await saveLocalDb();
+        if (typeof showToast === 'function') showToast('Berhasil ' + (requestReload ? 'reload & simpan' : 'menyimpan') + ' ' + count + ' progres siswa.', 'success');
+        if (typeof renderRombelProgress === 'function') renderRombelProgress();
+    } catch (err) {
+        console.warn('[saveLiveProgressState] error:', err.message || err);
+        if (typeof showToast === 'function') showToast('Gagal menyimpan live progress.', 'error');
+    }
+}
+
+async function saveLiveProgressStateAndReload() {
+    await saveLiveProgressState(true);
+}
+
+window.saveLiveProgressState = saveLiveProgressState;
+window.saveLiveProgressStateAndReload = saveLiveProgressStateAndReload;
+
 
