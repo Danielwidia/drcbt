@@ -141,6 +141,14 @@ window.isExamActive = false;
 var examData = null;
 window.examData = null;
 
+// Question form state (used by guru/admin modules)
+let currentQType = 'single';
+let activeCorrect = 0;
+let activeCorrectMultiple = [];
+window.currentQType = currentQType;
+window.activeCorrect = activeCorrect;
+window.activeCorrectMultiple = activeCorrectMultiple;
+
 const loadedCollections = {
     questions: false,
     students: false,
@@ -344,6 +352,48 @@ function deleteResult(idx) {
     }
 }
 window.deleteResult = deleteResult;
+
+// Render/update correct-answer buttons in question modal
+function renderCorrectButtons() {
+    document.querySelectorAll('.c-btn').forEach((b, i) => {
+        let selected = false;
+        if (currentQType === 'multiple') {
+            selected = Array.isArray(activeCorrectMultiple) && activeCorrectMultiple.includes(i);
+        } else {
+            selected = activeCorrect === i;
+        }
+        b.className = selected ? 'c-btn flex-1 py-3 border-2 border-sky-600 bg-sky-50 text-sky-600 font-bold rounded-xl' : 'c-btn flex-1 py-3 border-2 border-slate-100 text-slate-400 font-bold rounded-xl';
+    });
+}
+window.renderCorrectButtons = renderCorrectButtons;
+
+function setActiveCorrect(idx) {
+    if (currentQType === 'multiple') {
+        const pos = activeCorrectMultiple.indexOf(idx);
+        if (pos === -1) activeCorrectMultiple.push(idx);
+        else activeCorrectMultiple.splice(pos, 1);
+    } else {
+        activeCorrect = idx;
+        activeCorrectMultiple = [];
+    }
+    renderCorrectButtons();
+}
+window.setActiveCorrect = setActiveCorrect;
+
+// Delete question from local DB and re-render lists
+function deleteQuestion(idx) {
+    if (!confirm('Hapus soal?')) return;
+    loadedCollections.questions = true;
+    if (!Array.isArray(db.questions) || idx < 0 || idx >= db.questions.length) return;
+    db.questions.splice(idx, 1);
+    if (typeof save === 'function') save();
+    if (window.isTeacherMode || (currentSiswa && currentSiswa.role === 'teacher')) {
+        if (typeof renderTeacherQuestions === 'function') renderTeacherQuestions();
+    } else if (typeof renderAdminQuestions === 'function') {
+        renderAdminQuestions();
+    }
+}
+window.deleteQuestion = deleteQuestion;
 
 function clearResultsFilter() {
     const f = document.getElementById('results-date-from');
