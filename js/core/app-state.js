@@ -395,6 +395,52 @@ function deleteQuestion(idx) {
 }
 window.deleteQuestion = deleteQuestion;
 
+function renderImagePreviews() {
+    const previewContainer = document.getElementById('q-images-preview');
+    const listContainer = document.getElementById('q-images-list');
+    if (previewContainer) previewContainer.innerHTML = '';
+    if (listContainer) listContainer.innerHTML = '';
+
+    if (!window.storedImages || !Array.isArray(window.storedImages)) return;
+
+    window.storedImages.forEach((img, idx) => {
+        const isUrl = typeof img === 'string' && (img.startsWith('http') || img.startsWith('https'));
+        // Show thumbnail preview
+        const thumb = document.createElement('div');
+        thumb.className = 'relative w-24 h-24 border-2 border-sky-300 rounded-lg overflow-hidden group hover:border-red-400 transition-all cursor-pointer';
+        thumb.onclick = () => {
+            window.storedImages.splice(idx, 1);
+            renderImagePreviews();
+        };
+
+        const imgEl = document.createElement('img');
+        imgEl.src = (typeof normalizeImgSrc === 'function') ? normalizeImgSrc(img) : (typeof img === 'string' ? img : '');
+        imgEl.className = 'w-full h-full object-cover';
+
+        const badge = document.createElement('div');
+        badge.className = 'absolute top-1 right-1 bg-sky-600 text-white text-[10px] rounded px-1 font-bold';
+        badge.textContent = idx + 1;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'absolute inset-0 bg-red-500/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity';
+        overlay.innerHTML = '<i class="fas fa-trash text-white text-xs"></i>';
+
+        thumb.appendChild(imgEl);
+        thumb.appendChild(badge);
+        thumb.appendChild(overlay);
+        if (previewContainer) previewContainer.appendChild(thumb);
+
+        // Add to list
+        const item = document.createElement('div');
+        item.className = 'flex justify-between items-center bg-slate-50 p-1.5 rounded-lg';
+        const label = isUrl ? '🔗 URL' : '📁 File';
+        const name = isUrl ? (String(img).length > 30 ? String(img).substring(0, 30) + '...' : String(img)) : `Gambar ${idx + 1}`;
+        item.innerHTML = `<span class="text-[10px] font-bold text-slate-500">${label}: ${name}</span>`;
+        if (listContainer) listContainer.appendChild(item);
+    });
+}
+window.renderImagePreviews = renderImagePreviews;
+
 function clearResultsFilter() {
     const f = document.getElementById('results-date-from');
     const t = document.getElementById('results-date-to');
