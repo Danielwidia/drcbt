@@ -1792,3 +1792,375 @@ if (document.readyState === 'loading') {
 } else {
     startAppInitialization();
 }
+
+// ========================================================
+// TEACHER HELPER FUNCTIONS
+// ========================================================
+
+function teacherSubjectNames(teacher) {
+    if (!teacher) return [];
+    if (teacher.role === 'admin') {
+        return (db.subjects || []).map(s => typeof s === 'string' ? s : s.name);
+    }
+    if (!Array.isArray(teacher.subjects)) return [];
+    return teacher.subjects.map(s => typeof s === 'string' ? s : s.name);
+}
+window.teacherSubjectNames = teacherSubjectNames;
+
+function teacherAllowedRombels(teacher, subjectName) {
+    if (!teacher) return [];
+    if (teacher.role === 'admin') {
+        return db.rombels || [];
+    }
+    if (!Array.isArray(teacher.subjects)) return [];
+    const entry = teacher.subjects.find(s => (typeof s === 'string' ? s : s.name) === subjectName);
+    if (!entry) return [];
+    if (typeof entry === 'string') {
+        return teacher.rombels || [];
+    }
+    return entry.rombels || [];
+}
+window.teacherAllowedRombels = teacherAllowedRombels;
+
+function teacherCombinedRombels(teacher) {
+    if (!teacher || !Array.isArray(teacher.subjects)) return [];
+    const set = new Set();
+    teacher.subjects.forEach(s => {
+        const roms = typeof s === 'string' ? (teacher.rombels || []) : (s.rombels || []);
+        roms.forEach(r => set.add(r));
+    });
+    if (Array.isArray(teacher.rombels)) {
+        teacher.rombels.forEach(r => set.add(r));
+    }
+    return Array.from(set);
+}
+window.teacherCombinedRombels = teacherCombinedRombels;
+
+function toggleTeacherSelectAll(event) {
+    const checked = event.target.checked;
+    const selectedSubject = document.getElementById('teacher-filter-mapel')?.value || '';
+    const selectedRombel = document.getElementById('teacher-filter-rombel')?.value || '';
+    let list = db.questions.filter(q => {
+        const qSubject = q.mapel;
+        if (!qSubject) return false;
+        const qSubjectName = typeof qSubject === 'string' ? qSubject : qSubject.name || qSubject;
+        if (!teacherSubjectNames(currentSiswa).includes(qSubjectName)) return false;
+        const allowed = teacherAllowedRombels(currentSiswa, qSubjectName);
+        if (!allowed.includes(q.rombel)) return false;
+        return true;
+    });
+    if (selectedSubject) {
+        list = list.filter(q => {
+            const qSubject = typeof q.mapel === 'string' ? q.mapel : q.mapel.name || q.mapel;
+            return qSubject === selectedSubject;
+        });
+    }
+    if (selectedRombel) {
+        list = list.filter(q => q.rombel === selectedRombel);
+    }
+    if (checked) {
+        list.forEach(q => selectedTeacherQuestions.add(q));
+    } else {
+        list.forEach(q => selectedTeacherQuestions.delete(q));
+    }
+    if (typeof renderTeacherQuestions === 'function') renderTeacherQuestions();
+}
+window.toggleTeacherSelectAll = toggleTeacherSelectAll;
+
+// ========================================================
+// AI TYPE COUNTS
+// ========================================================
+
+function getAiTypeCounts() {
+    const typeCounts = { single: 0, multiple: 0, text: 0, tf: 0, matching: 0 };
+    const oldJumlah = document.getElementById('ai-jumlah');
+    const oldType = document.getElementById('ai-type');
+
+    if (oldJumlah && oldType) {
+        const chosen = (oldType.value || 'single').trim();
+        typeCounts[chosen] = Number(oldJumlah.value) || 0;
+    } else {
+        typeCounts.single = Number(document.getElementById('ai-jml-pg')?.value) || 0;
+        typeCounts.multiple = Number(document.getElementById('ai-jml-pgk')?.value) || 0;
+        typeCounts.text = Number(document.getElementById('ai-jml-esai')?.value) || 0;
+        typeCounts.tf = Number(document.getElementById('ai-jml-bs')?.value) || 0;
+        typeCounts.matching = Number(document.getElementById('ai-jml-jodoh')?.value) || 0;
+    }
+
+    return typeCounts;
+}
+window.getAiTypeCounts = getAiTypeCounts;
+
+// ========================================================
+// EXPORT QUESTIONS
+// ========================================================
+
+function exportQuestions() {
+    let questionsToExport = [];
+    if (window.isTeacherMode || (currentSiswa && currentSiswa.role === 'teacher')) {
+        // Konteks guru: export sesuai filter yang aktif dan hanya soal milik guru tersebut
+        const fM = document.getElementById('teacher-filter-mapel')?.value || '';
+        const fR = document.getElementById('teacher-filter-rombel')?.value || '';
+        questionsToExport = db.questions.filter(q => {
+            const qSubject = typeof q.mapel === 'string' ? q.mapel : q.mapel?.name || q.mapel;
+            if (!teacherSubjectNames(currentSiswa).includes(qSubject)) return false;
+            const allowed = teacherAllowedRombels(currentSiswa, qSubject);
+            if (!allowed.includes(q.rombel)) return false;
+            if (fM && qSubject !== fM) return false;
+            if (fR && q.rombel !== fR) return false;
+            return true;
+        });
+    } else {
+        // Konteks admin: export sesuai filter admin
+        const fR = document.getElementById('filter-rombel')?.value || '';
+        const fM = document.getElementById('filter-mapel')?.value || '';
+        questionsToExport = db.questions.filter(q =>
+            (!fR || fR === 'ALL' || q.rombel === fR) && (!fM || fM === 'ALL' || q.mapel === fM)
+        );
+    }
+
+    if (questionsToExport.length === 0) {
+        alert('Tidak ada soal yang bisa diexport berdasarkan filter saat ini.');
+        return;
+    }
+
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(questionsToExport, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", `soal_cbt_export_${new Date().getTime()}.json`);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+}
+window.exportQuestions = exportQuestions;
+
+// ========================================================
+// API KEYS - POLLING VARIABLES & FUNCTIONS
+// ========================================================
+
+let apiKeysStatsPollingInterval = null;
+const STATS_POLLING_INTERVAL = 3000; // 3 detik
+
+function detectProviderFromKey(key) {
+    if (!key) return 'Unknown';
+    if (key.startsWith('AIzaSy')) return 'Google Gemini';
+    if (key.startsWith('sk-or-v1-') || key.startsWith('sk-or-')) return 'OpenRouter';
+    if (key.startsWith('sk-')) return 'OpenAI (ChatGPT)';
+    if (key.startsWith('gsk_')) return 'Groq';
+    if (key.includes('deepseek')) return 'DeepSeek';
+    return 'Other Provider';
+}
+window.detectProviderFromKey = detectProviderFromKey;
+
+function addTeacherAPIKeyForm() {
+    const input = document.getElementById('new-api-key-input');
+    if (!input) {
+        showToast('Form tidak ditemukan', 'error');
+        return;
+    }
+
+    const apiKey = input.value.trim();
+    if (!apiKey) {
+        showToast('Masukkan API Key terlebih dahulu', 'error');
+        return;
+    }
+
+    if (!currentSiswa || currentSiswa.role !== 'teacher') {
+        alert('Hanya guru yang dapat menambahkan API Key');
+        return;
+    }
+
+    const btn = (window.event && window.event.target) ? window.event.target : null;
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Memproses...';
+    }
+
+    fetch(getApiBaseUrl() + '/api/teacher/add-api-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teacherId: currentSiswa.id, apiKey: apiKey })
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (!data.ok) {
+                showToast(data.error || 'Gagal menambahkan API Key', 'error');
+                return;
+            }
+            if (typeof updateApiKeysWarningBanner === 'function') {
+                updateApiKeysWarningBanner('', '');
+            }
+
+            if (!Array.isArray(currentSiswa.apiKeys)) {
+                currentSiswa.apiKeys = [];
+            }
+
+            const trimmedKey = apiKey.trim();
+            const alreadyExists = currentSiswa.apiKeys.some(entry => {
+                if (typeof entry === 'string') return entry.trim() === trimmedKey;
+                if (typeof entry === 'object' && entry.key) return entry.key.trim() === trimmedKey;
+                return false;
+            });
+
+            if (!alreadyExists) {
+                currentSiswa.apiKeys.push({
+                    key: trimmedKey,
+                    status: 'active',
+                    addedAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                    note: ''
+                });
+            }
+
+            if (typeof save === 'function') save();
+            input.value = '';
+            input.type = 'password';
+            if (typeof renderTeacherAPIKeys === 'function') renderTeacherAPIKeys();
+            if (typeof updateRealtimeStats === 'function') updateRealtimeStats();
+
+            const message = data.vercelStatus
+                ? `✅ API Key ditambahkan! ${data.vercelStatus}`
+                : '✅ API Key berhasil ditambahkan!';
+            showToast(message, 'success');
+        })
+        .catch(err => {
+            console.error('API Key Error:', err);
+            showToast('Terjadi kesalahan: ' + err.message, 'error');
+        })
+        .finally(() => {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        });
+}
+window.addTeacherAPIKeyForm = addTeacherAPIKeyForm;
+
+function removeTeacherAPIKey(index) {
+    if (!confirm('Apakah Anda yakin ingin menghapus API Key ini?')) return;
+
+    if (!currentSiswa || currentSiswa.role !== 'teacher') {
+        alert('Hanya guru yang dapat menghapus API Key');
+        return;
+    }
+
+    fetch(getApiBaseUrl() + '/api/teacher/remove-api-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teacherId: currentSiswa.id, keyIndex: index })
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (!data.ok) {
+                showToast(data.error || 'Gagal menghapus API Key', 'error');
+                return;
+            }
+            if (Array.isArray(currentSiswa.apiKeys)) {
+                currentSiswa.apiKeys.splice(index, 1);
+            }
+            if (typeof save === 'function') save();
+            if (typeof renderTeacherAPIKeys === 'function') renderTeacherAPIKeys();
+            if (typeof updateRealtimeStats === 'function') updateRealtimeStats();
+            showToast('✅ API Key berhasil dihapus!', 'success');
+        })
+        .catch(err => {
+            console.error('Remove API Key Error:', err);
+            showToast('Terjadi kesalahan: ' + err.message, 'error');
+        });
+}
+window.removeTeacherAPIKey = removeTeacherAPIKey;
+
+function toggleNewKeyVisibility() {
+    const input = document.getElementById('new-api-key-input');
+    const icon = document.getElementById('toggle-new-key-icon');
+    if (!input) return;
+    if (input.type === 'password') {
+        input.type = 'text';
+        if (icon) icon.classList.replace('fa-eye', 'fa-eye-slash');
+    } else {
+        input.type = 'password';
+        if (icon) icon.classList.replace('fa-eye-slash', 'fa-eye');
+    }
+}
+window.toggleNewKeyVisibility = toggleNewKeyVisibility;
+
+async function renderTeacherAPIKeys() {
+    const listContainer = document.getElementById('api-keys-list');
+    if (!listContainer) return;
+
+    if (!currentSiswa || !Array.isArray(currentSiswa.apiKeys)) {
+        listContainer.innerHTML = `
+            <div class="text-center py-12 text-slate-400">
+                <i class="fas fa-circle-notch fa-spin text-4xl mb-4 opacity-20"></i>
+                <p class="font-bold">Memuat daftar API Key...</p>
+            </div>`;
+        if (typeof syncTeacherAPIKeysFromServer === 'function') {
+            await syncTeacherAPIKeysFromServer();
+        }
+    }
+
+    if (!currentSiswa || !Array.isArray(currentSiswa.apiKeys)) {
+        listContainer.innerHTML = `
+            <div class="text-center py-12 text-slate-400">
+                <i class="fas fa-key text-4xl mb-4 opacity-20"></i>
+                <p class="font-bold">Belum ada API Key pribadi</p>
+                <p class="text-xs">Gunakan form di atas untuk menambahkan key Gemini atau ChatGPT.</p>
+            </div>`;
+        if (typeof updateTeacherApiKeysStats === 'function') updateTeacherApiKeysStats([]);
+        return;
+    }
+
+    const filter = document.getElementById('api-keys-filter')?.value || 'all';
+    let keys = currentSiswa.apiKeys;
+
+    if (typeof updateTeacherApiKeysStats === 'function') updateTeacherApiKeysStats(currentSiswa.apiKeys);
+
+    if (filter === 'active') {
+        keys = keys.filter(k => (typeof k === 'object' ? k.status : 'active') !== 'exhausted');
+    } else if (filter === 'exhausted') {
+        keys = keys.filter(k => (typeof k === 'object' ? k.status : 'active') === 'exhausted');
+    }
+
+    if (keys.length === 0) {
+        listContainer.innerHTML = `
+            <div class="text-center py-12 text-slate-400">
+                <i class="fas fa-filter text-4xl mb-4 opacity-20"></i>
+                <p class="font-bold">Tidak ada key yang sesuai filter</p>
+            </div>`;
+        return;
+    }
+
+    listContainer.innerHTML = keys.map((key, index) => {
+        const fullKey = typeof key === 'object' ? (key.key || '') : key;
+        const status = typeof key === 'object' ? (key.status || 'active') : 'active';
+        const displayKey = fullKey.length > 20 ? fullKey.substring(0, 10) + '...' + fullKey.substring(fullKey.length - 8) : fullKey;
+        const provider = detectProviderFromKey(fullKey);
+        const isExhausted = status === 'exhausted';
+
+        return `
+            <div class="bg-white border ${isExhausted ? 'border-red-100 bg-red-50/10' : 'border-slate-100'} rounded-2xl p-4 flex items-center justify-between group transition-all hover:shadow-md">
+                <div class="flex items-center gap-4">
+                    <div class="w-10 h-10 ${isExhausted ? 'bg-red-100 text-red-600' : 'bg-sky-100 text-sky-600'} rounded-xl flex items-center justify-center text-lg">
+                        <i class="fas ${provider.includes('Gemini') ? 'fa-gem' : (provider.includes('ChatGPT') ? 'fa-robot' : 'fa-key')}"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="text-xs font-black text-slate-800">${provider}</span>
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${isExhausted ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'} uppercase tracking-tight">
+                                ${isExhausted ? 'Habis' : 'Aktif'}
+                            </span>
+                        </div>
+                        <p class="text-xs font-mono text-slate-500">${displayKey}</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="removeTeacherAPIKey(${index})" class="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Hapus Key">
+                        <i class="fas fa-trash-alt text-sm"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+window.renderTeacherAPIKeys = renderTeacherAPIKeys;
