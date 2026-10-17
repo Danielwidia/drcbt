@@ -2260,3 +2260,9 @@ async function renderTeacherAPIKeys() {
     }).join('');
 }
 window.renderTeacherAPIKeys = renderTeacherAPIKeys;
+
+function toggleMobileMenu() {
+    const menu = document.getElementById('mobile-menu');
+    if (menu) menu.classList.toggle('hidden');
+}
+window.toggleMobileMenu = toggleMobileMenu;
