@@ -29,6 +29,23 @@ function closeModals() {
 
 window.closeModals = closeModals;
 
+function showLoginScreen() {
+    const login = document.getElementById('login-screen');
+    if (login) login.classList.remove('hidden');
+
+    const admin = document.getElementById('admin-dashboard');
+    if (admin) admin.classList.add('hidden');
+
+    const student = document.getElementById('student-dashboard');
+    if (student) student.classList.add('hidden');
+
+    const teacher = document.getElementById('teacher-dashboard');
+    if (teacher) teacher.classList.add('hidden');
+
+    if (typeof closeModals === 'function') closeModals();
+}
+window.showLoginScreen = showLoginScreen;
+
 function reloadPage() {
     // Show loading overlay
     const overlay = document.getElementById('loading-overlay');
@@ -59,6 +76,53 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 7000) {
 }
 
 window.fetchJsonWithTimeout = fetchJsonWithTimeout;
+
+function hideLoadingOverlay() {
+    const overlay = document.getElementById('loading-overlay');
+    if (overlay) {
+        overlay.classList.add('hidden');
+        overlay.classList.remove('flex');
+    }
+}
+window.hideLoadingOverlay = hideLoadingOverlay;
+
+async function init() {
+    try {
+        if (typeof closeModals === 'function') closeModals();
+        if (typeof fetchSchoolSettings === 'function') await fetchSchoolSettings();
+        if (typeof showLoginScreen === 'function' && document.getElementById('login-screen')) {
+            showLoginScreen();
+        }
+    } catch (err) {
+        console.error('[init] Initialization failed:', err);
+    } finally {
+        hideLoadingOverlay();
+    }
+}
+window.init = init;
+
+const startAppInitialization = async () => {
+    const safetyTimer = setTimeout(() => hideLoadingOverlay(), 2500);
+
+    try {
+        if (typeof init === 'function') {
+            await init();
+        } else {
+            console.warn('[bootstrap] init() not found; hiding loading overlay as fallback.');
+        }
+    } catch (err) {
+        console.error('[bootstrap] Initialization failed:', err);
+    } finally {
+        clearTimeout(safetyTimer);
+        hideLoadingOverlay();
+    }
+};
+
+if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', startAppInitialization);
+} else {
+    startAppInitialization();
+}
 
 const DB_KEY = "EXAM_DORKAS_DATABASE_OFFICIAL";
 
