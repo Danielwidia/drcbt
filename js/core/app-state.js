@@ -1793,6 +1793,77 @@ const startAppInitialization = async () => {
     }
 };
 
+// ===== MISSING UTILITY FUNCTIONS =====
+
+let currentQType = 'single';
+window.currentQType = currentQType;
+
+let activeCorrect = 0;
+window.activeCorrect = activeCorrect;
+
+let activeCorrectMultiple = [];
+window.activeCorrectMultiple = activeCorrectMultiple;
+
+function renderCorrectButtons() {
+    document.querySelectorAll('.c-btn').forEach((b, i) => {
+        let selected = false;
+        if (window.currentQType === 'multiple') {
+            selected = window.activeCorrectMultiple.includes(i);
+        } else {
+            selected = window.activeCorrect === i;
+        }
+        b.className = selected
+            ? 'c-btn flex-1 py-3 border-2 border-sky-600 bg-sky-50 text-sky-600 font-bold rounded-xl'
+            : 'c-btn flex-1 py-3 border-2 border-slate-100 text-slate-400 font-bold rounded-xl';
+    });
+}
+window.renderCorrectButtons = renderCorrectButtons;
+
+function setActiveCorrect(idx) {
+    if (window.currentQType === 'multiple') {
+        const pos = window.activeCorrectMultiple.indexOf(idx);
+        if (pos === -1) window.activeCorrectMultiple.push(idx);
+        else window.activeCorrectMultiple.splice(pos, 1);
+    } else {
+        window.activeCorrect = idx;
+        window.activeCorrectMultiple = [];
+    }
+    renderCorrectButtons();
+}
+window.setActiveCorrect = setActiveCorrect;
+
+async function pingBackend() {
+    try {
+        const res = await fetch(getApiBaseUrl() + '/api/ips', { cache: 'no-store' });
+        return res.ok;
+    } catch (e) {
+        return false;
+    }
+}
+window.pingBackend = pingBackend;
+
+function getAiTypeCounts() {
+    const typeCounts = { single: 0, multiple: 0, text: 0, tf: 0, matching: 0 };
+    const oldJumlah = document.getElementById('ai-jumlah');
+    const oldType = document.getElementById('ai-type');
+
+    if (oldJumlah && oldType) {
+        const chosen = (oldType.value || 'single').trim();
+        typeCounts[chosen] = Number(oldJumlah.value) || 0;
+    } else {
+        typeCounts.single   = Number(document.getElementById('ai-jml-pg')?.value)    || 0;
+        typeCounts.multiple = Number(document.getElementById('ai-jml-pgk')?.value)   || 0;
+        typeCounts.text     = Number(document.getElementById('ai-jml-esai')?.value)  || 0;
+        typeCounts.tf       = Number(document.getElementById('ai-jml-bs')?.value)    || 0;
+        typeCounts.matching = Number(document.getElementById('ai-jml-jodoh')?.value) || 0;
+    }
+
+    return typeCounts;
+}
+window.getAiTypeCounts = getAiTypeCounts;
+
+// ===== END MISSING UTILITY FUNCTIONS =====
+
 if (document.readyState === 'loading') {
     window.addEventListener('DOMContentLoaded', startAppInitialization);
 } else {
