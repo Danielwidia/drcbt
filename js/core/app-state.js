@@ -5,9 +5,58 @@
 
 function showLoginForm(type) {
     window.loginType = type;
-    document.getElementById('auth-modal').classList.remove('hidden');
-    document.getElementById('auth-modal').classList.add('flex');
+    const authModal = document.getElementById('auth-modal');
+    if (authModal) {
+        authModal.classList.remove('hidden');
+        authModal.classList.add('flex');
+    }
+
+    const titleEl = document.getElementById('modal-title');
+    if (titleEl) {
+        const titles = { student: 'Login Siswa', teacher: 'Login Guru', admin: 'Login Admin' };
+        titleEl.textContent = titles[type] || 'Login';
+    }
+
+    const googleSection = document.getElementById('google-signin-section');
+    if (googleSection) {
+        if (type === 'teacher') googleSection.classList.remove('hidden');
+        else googleSection.classList.add('hidden');
+    }
+
+    const usernameEl = document.getElementById('username');
+    const passwordEl = document.getElementById('password');
+    const errorEl = document.getElementById('login-error');
+    if (usernameEl) usernameEl.value = '';
+    if (passwordEl) passwordEl.value = '';
+    if (errorEl) errorEl.classList.add('hidden');
+
+    if (passwordEl) {
+        passwordEl.type = 'password';
+        const icon = document.getElementById('toggle-pw-icon');
+        if (icon) {
+            icon.classList.remove('fa-eye-slash');
+            icon.classList.add('fa-eye');
+        }
+    }
 }
+window.showLoginForm = showLoginForm;
+
+function ensureDefaultLoginAccounts() {
+    if (!Array.isArray(db.students)) db.students = [];
+
+    if (!db.students.some(x => x && x.role === 'admin')) {
+        db.students.unshift({ id: 'ADM', password: 'admin321', name: 'Administrator', role: 'admin' });
+    }
+
+    if (!db.students.some(x => x && x.role === 'teacher')) {
+        db.students.push({ id: 'GURU', password: 'escrido123', name: 'Guru Demo', role: 'teacher' });
+    }
+
+    if (!db.students.some(x => x && x.role === 'student')) {
+        db.students.push({ id: 'SISWA01', password: 'escrido', name: 'Siswa Demo', role: 'student' });
+    }
+}
+window.ensureDefaultLoginAccounts = ensureDefaultLoginAccounts;
 
 function closeModals() {
     const modalSelector = '[id$="-modal"]';
@@ -100,6 +149,8 @@ async function handleLogin() {
         return;
     }
 
+    ensureDefaultLoginAccounts();
+
     if (!db.students || db.students.length === 0) {
         alert('Database belum siap. Silakan refresh halaman.');
         return;
@@ -129,7 +180,6 @@ async function handleLogin() {
             window.currentSiswa = user;
             if (user.role === 'student' && typeof updateCompletionCharts === 'function') updateCompletionCharts();
             saveSession();
-
             try { await logActivity('Login ke aplikasi'); } catch (e) {}
 
             if (user.role === 'admin') window.location.href = 'admin.html';
