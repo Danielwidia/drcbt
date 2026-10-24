@@ -694,6 +694,21 @@
                     </div>
 
                     <div class="mt-4">
+                        <label class="flex items-start gap-3 text-sm text-slate-700 font-semibold bg-white p-4 rounded-xl border border-slate-200 cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-all" onclick="toggleSoalCeritaInput()">
+                            <input type="checkbox" id="input-soal-cerita" class="w-5 h-5 flex-shrink-0 mt-0.5 text-teal-600 rounded border-slate-300" onclick="event.stopPropagation(); toggleSoalCeritaInput()">
+                            <div class="flex-1">
+                                <span class="block">Sertakan Soal Cerita (Kontekstual)</span>
+                                <span class="text-[10px] text-slate-400 font-normal">AI akan membuat sejumlah soal berbasis teks cerita / narasi kontekstual</span>
+                            </div>
+                        </label>
+                        <div id="container-soal-cerita" class="hidden mt-2 px-4 py-3 bg-teal-50 rounded-xl border border-teal-200 flex items-center gap-3">
+                            <label class="text-xs text-teal-700 font-semibold whitespace-nowrap">Jumlah Soal Cerita:</label>
+                            <input type="number" id="jml-soal-cerita" min="1" max="20" value="3" class="w-20 px-3 py-2 bg-white rounded-lg outline-none ring-1 ring-teal-300 focus:ring-2 focus:ring-teal-500 text-sm text-center font-bold text-teal-700">
+                            <span class="text-[10px] text-teal-600">soal dari total</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
                         <label class="flex items-start gap-3 text-sm text-slate-700 font-semibold bg-white p-4 rounded-xl border border-slate-200 cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-all">
                             <input type="checkbox" id="input-generate-kisi" checked class="w-5 h-5 flex-shrink-0 mt-0.5 text-blue-600 rounded border-slate-300">
                             <span>Buatkan Kisi-kisi untuk soal-soal ini</span>
@@ -1057,6 +1072,17 @@
             if (hotsEl) hotsEl.value = hots;
         }
 
+        function toggleSoalCeritaInput() {
+            const checkbox = document.getElementById('input-soal-cerita');
+            const container = document.getElementById('container-soal-cerita');
+            if (!checkbox || !container) return;
+            if (checkbox.checked) {
+                container.classList.remove('hidden');
+            } else {
+                container.classList.add('hidden');
+            }
+        }
+
         // Riwayat Soal Pintar functionality
         let allSoals = [];
         let filteredSoals = [];
@@ -1352,13 +1378,19 @@
                     extraData.simpanBank = document.getElementById('input-simpan-bank')?.checked ? true : false;
                     extraData.pisahLembar = document.getElementById('input-pisah-lembar')?.checked ? true : false;
 
+                    // Soal Cerita
+                    const soalCeritaChecked = document.getElementById('input-soal-cerita')?.checked ? true : false;
+                    extraData.soalCerita = soalCeritaChecked;
+                    extraData.jumlahSoalCerita = soalCeritaChecked ? (parseInt(document.getElementById('jml-soal-cerita')?.value) || 3) : 0;
+
                     // Add Level Soal
                     extraData.levelMudah = document.getElementById('lvl-mudah')?.value || 0;
                     extraData.levelSedang = document.getElementById('lvl-sedang')?.value || 0;
                     extraData.levelHots = document.getElementById('lvl-hots')?.value || 0;
 
                     // Ensure AI receives all options in descriptive format
-                    extraData.contextAI = `JENIS: ${extraData.jenis}, KOMPOSISI: ${extraData.jumlahPerBentuk}, LEVEL: Mudah(${extraData.levelMudah})-Sedang(${extraData.levelSedang})-HOTS(${extraData.levelHots}), GAMBAR: ${extraData.opsiGambar}, KISI-KISI: ${extraData.generateKisi ? 'Ya' : 'Tidak'}, PISAH HALAMAN: ${extraData.pisahLembar ? 'Ya' : 'Tidak'}`;
+                    const soalCeritaCtx = soalCeritaChecked ? `, SOAL CERITA: ${extraData.jumlahSoalCerita} soal` : '';
+                    extraData.contextAI = `JENIS: ${extraData.jenis}, KOMPOSISI: ${extraData.jumlahPerBentuk}, LEVEL: Mudah(${extraData.levelMudah})-Sedang(${extraData.levelSedang})-HOTS(${extraData.levelHots}), GAMBAR: ${extraData.opsiGambar}, KISI-KISI: ${extraData.generateKisi ? 'Ya' : 'Tidak'}, PISAH HALAMAN: ${extraData.pisahLembar ? 'Ya' : 'Tidak'}${soalCeritaCtx}`;
                 }
 
                 // Check for blueprint file or PPT material file

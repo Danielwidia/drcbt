@@ -2847,6 +2847,22 @@ Pastikan setiap bagian jelas, terukur, dan sesuai dengan standar Kurikulum Merde
             3. Tambahkan keyword "high quality, simple, clear labels if needed" dalam deskripsi tersebut.`;
         }
 
+        // ── Soal Cerita ──────────────────────────────────────────────────────
+        const soalCerita = String(extraData?.soalCerita) === 'true';
+        const jumlahSoalCerita = soalCerita ? (parseInt(extraData?.jumlahSoalCerita) || 3) : 0;
+
+        if (soalCerita && jumlahSoalCerita > 0) {
+            console.log(`[/api/generate-admin-doc] Soal Cerita aktif: ${jumlahSoalCerita} soal`);
+            promptText += `\n\nPENTING — SOAL CERITA (KONTEKSTUAL):
+Dari total soal yang dibuat, WAJIB jadikan ${jumlahSoalCerita} butir sebagai SOAL CERITA (soal berbasis teks cerita/narasi kontekstual). Aturan soal cerita:
+1. Setiap soal cerita didahului oleh sebuah paragraf narasi/cerita pendek yang relevan dengan materi (1–3 kalimat), ditampilkan dalam blok HTML berikut PERSIS:
+   <div style="background-color:#f0fdf4;border-left:4px solid #22c55e;border-radius:0 8px 8px 0;padding:12px 16px;margin:12px 0;font-style:italic;color:#166534;">📖 <strong>Bacalah cerita berikut!</strong><br>[ISI_TEKS_CERITA_DI_SINI]</div>
+2. Setelah blok cerita tersebut, barulah muncul pertanyaan soal yang MENGACU pada isi cerita itu.
+3. Soal cerita harus HOTS (level analisis/evaluasi) dan mendorong pemahaman kontekstual.
+4. Sebar soal cerita secara merata, tidak hanya di akhir. Tandai nomor soal cerita dengan badge: <span style="background:#dcfce7;color:#15803d;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:bold;margin-right:6px;">Soal Cerita</span>`;
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         if (extraData?.generateKisiKisi) {
             promptText += `\n\nPenting: Berdasarkan soal-soal yang Anda buat, buatkan juga matriks KISI-KISI UJIAN yang menjadi panduannya (Lengkap dengan Indikator Soal dan Level Kognitif) and tampilkan matriks tersebut pada bagian PALING ATAS / AWAL dari dokumen sebelum daftar soal.`;
         }
@@ -2924,7 +2940,7 @@ SANGAT PENTING:
                 tipeAktivitas = 'Jenis: LKPD Diskusi & Refleksi. Berisi pertanyaan pemandu diskusi, aktivitas brainstorming, dan refleksi pemahaman siswa. Fokus pada pengembangan pemikiran kritis melalui dialog dan tukar pendapat.';
             } else if (formatLKPD === 'eksperimen') {
                 tipeAktivitas = 'Jenis: LKPD Eksperimen/Praktikum. Berisi prosedur percobaan yang jelas, tabel pengamatan, analisis hasil, dan pertanyaan yang mendorong siswa menemukan konsep. Sertakan alat dan bahan yang diperlukan.';
-                       } else if (formatLKPD === 'proyek') {
+            } else if (formatLKPD === 'proyek') {
                 tipeAktivitas = 'Jenis: LKPD Berbasis Proyek. Berisi deskripsi proyek, langkah-langkah pengerjaan, kriteria keberhasilan, dan hasil yang diharapkan. Dorong kolaborasi dan kreativitas siswa dalam menghasilkan produk nyata.';
             } else if (formatLKPD === 'pemecahan') {
                 tipeAktivitas = 'Jenis: LKPD Pemecahan Masalah. Berisi studi kasus atau masalah nyata, pertanyaan analitis bertingkat, panduan strategi pemecahan, dan aplikasi solusi. Fokus pada HOTS (Higher Order Thinking Skills).';
