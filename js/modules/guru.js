@@ -418,10 +418,22 @@ function saveTeacherQuestion() {
         db.questions.push(record);
     }
 
-    save();
-    renderTeacherQuestions();
-    closeModals();
-    alert('Soal berhasil disimpan!');
+    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+        if (typeof adminSave === 'function') adminSave();
+        if (typeof markAdminChanges === 'function') markAdminChanges();
+        renderTeacherQuestions();
+        closeModals();
+        if (typeof showToast === 'function') {
+            showToast('✅ Soal tersimpan lokal. Klik tombol Sinkron 🔴 untuk mengirim ke server.', 'info');
+        } else {
+            alert('Soal tersimpan lokal. Klik tombol Sinkron di kanan bawah untuk menyimpan ke server.');
+        }
+    } else {
+        save();
+        renderTeacherQuestions();
+        closeModals();
+        alert('Soal berhasil disimpan!');
+    }
 }
 
 function editTeacherQuestion(index) {
@@ -932,7 +944,13 @@ function deleteSelectedTeacherQuestions() {
     loadedCollections.questions = true;
     db.questions = db.questions.filter(q => !selectedTeacherQuestions.has(q));
     selectedTeacherQuestions.clear();
-    save();
+    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+        if (typeof adminSave === 'function') adminSave();
+        if (typeof markAdminChanges === 'function') markAdminChanges();
+        if (typeof showToast === 'function') showToast('✅ Soal dihapus lokal. Klik tombol Sinkron 🔴 untuk mengirim ke server.', 'info');
+    } else {
+        save();
+    }
     renderTeacherQuestions();
 }
 
@@ -947,7 +965,13 @@ function deletePaketSoal(mapel, rombel) {
     if (confirm(`Apakah Anda yakin ingin menghapus semua soal untuk Mapel ${mapel} dan Rombel ${rombel}?`)) {
         loadedCollections.questions = true;
         db.questions = db.questions.filter(q => !(q.mapel === mapel && q.rombel === rombel));
-        save();
+        if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+            if (typeof adminSave === 'function') adminSave();
+            if (typeof markAdminChanges === 'function') markAdminChanges();
+            if (typeof showToast === 'function') showToast('✅ Paket soal dihapus lokal. Klik tombol Sinkron 🔴 untuk mengirim ke server.', 'info');
+        } else {
+            save();
+        }
         renderAdminPaketSoal();
         if (currentDetailPackage && currentDetailPackage.mapel === mapel && currentDetailPackage.rombel === rombel) {
             closePaketDetail();
@@ -1385,13 +1409,28 @@ function saveQuestion() {
     } else {
         db.questions.push(record);
     }
-    save();
-    if (window.isTeacherMode) {
-        renderTeacherQuestions();
+
+    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+        if (typeof adminSave === 'function') adminSave();
+        if (typeof markAdminChanges === 'function') markAdminChanges();
+        if (window.isTeacherMode) {
+            renderTeacherQuestions();
+        } else {
+            renderAdminQuestions();
+        }
+        closeModals();
+        if (typeof showToast === 'function') {
+            showToast('✅ Soal tersimpan lokal. Klik tombol Sinkron 🔴 untuk mengirim ke server.', 'info');
+        }
     } else {
-        renderAdminQuestions();
+        save();
+        if (window.isTeacherMode) {
+            renderTeacherQuestions();
+        } else {
+            renderAdminQuestions();
+        }
+        closeModals();
     }
-    closeModals();
 }
 
 function importQuestionsJSON() {
@@ -1422,14 +1461,30 @@ function importQuestionsJSON() {
                 });
 
                 if (added > 0) {
-                    save();
-                    if (window.isTeacherMode || (currentSiswa && currentSiswa.role === 'teacher')) {
-                        renderTeacherQuestions();
+                    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+                        if (typeof adminSave === 'function') adminSave();
+                        if (typeof markAdminChanges === 'function') markAdminChanges();
+                        if (window.isTeacherMode || (currentSiswa && currentSiswa.role === 'teacher')) {
+                            renderTeacherQuestions();
+                        } else {
+                            renderAdminQuestions();
+                        }
+                        updateStats();
+                        if (typeof showToast === 'function') {
+                            showToast(`✅ ${added} soal diimport lokal. Klik tombol Sinkron 🔴 untuk mengirim ke server.`, 'info');
+                        } else {
+                            alert(`${added} soal berhasil diimport secara lokal. Klik tombol Sinkron untuk menyimpan ke server.`);
+                        }
                     } else {
-                        renderAdminQuestions();
+                        save();
+                        if (window.isTeacherMode || (currentSiswa && currentSiswa.role === 'teacher')) {
+                            renderTeacherQuestions();
+                        } else {
+                            renderAdminQuestions();
+                        }
+                        updateStats();
+                        alert(`${added} soal berhasil diimport.`);
                     }
-                    updateStats();
-                    alert(`${added} soal berhasil diimport.`);
                 } else {
                     alert('Tidak ada soal valid yang ditemukan dalam file ini.');
                 }
@@ -1778,14 +1833,30 @@ function importQuestionsExcel() {
                 });
 
                 if (added > 0) {
-                    save();
-                    if (window.isTeacherMode || (currentSiswa && currentSiswa.role === 'teacher')) {
-                        renderTeacherQuestions();
+                    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+                        if (typeof adminSave === 'function') adminSave();
+                        if (typeof markAdminChanges === 'function') markAdminChanges();
+                        if (window.isTeacherMode || (currentSiswa && currentSiswa.role === 'teacher')) {
+                            renderTeacherQuestions();
+                        } else {
+                            renderAdminQuestions();
+                        }
+                        updateStats();
+                        if (typeof showToast === 'function') {
+                            showToast(`✅ ${added} soal Excel diimport lokal. Klik tombol Sinkron 🔴 untuk mengirim ke server.`, 'info');
+                        } else {
+                            alert(`${added} soal dari Excel berhasil diimport secara lokal. Klik tombol Sinkron untuk menyimpan ke server.`);
+                        }
                     } else {
-                        renderAdminQuestions();
+                        save();
+                        if (window.isTeacherMode || (currentSiswa && currentSiswa.role === 'teacher')) {
+                            renderTeacherQuestions();
+                        } else {
+                            renderAdminQuestions();
+                        }
+                        updateStats();
+                        alert(`${added} soal dari Excel berhasil diimport.`);
                     }
-                    updateStats();
-                    alert(`${added} soal dari Excel berhasil diimport.`);
                 } else {
                     alert('Tidak ada soal valid yang ditemukan dalam file Excel ini atau format kolom tidak sesuai.');
                 }
@@ -1960,11 +2031,12 @@ function processImport() {
     }
 
 
-    save();
-
-    // Show detailed result
-    const resultMsg = `✅ Import Berhasil!\n\nDitambahkan: ${added} soal\n${failed > 0 ? `Gagal: ${failed} soal` : 'Semua soal berhasil diproses!'}`;
-    alert(resultMsg);
+    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+        if (typeof adminSave === 'function') adminSave();
+        if (typeof markAdminChanges === 'function') markAdminChanges();
+    } else {
+        save();
+    }
 
     console.log('✅ Import complete. Added:', added, 'Failed:', failed);
     console.log(importLog.join('\n'));
@@ -1975,6 +2047,17 @@ function processImport() {
         renderAdminQuestions();
     }
     closeModals();
+
+    if (typeof adminSyncState !== 'undefined' && adminSyncState.isAdminMode) {
+        if (typeof showToast === 'function') {
+            showToast(`✅ ${added} soal diimport lokal. Klik tombol Sinkron 🔴 untuk mengirim ke server.`, 'info');
+        } else {
+            alert(`✅ Import Berhasil! ${added} soal ditambahkan.\n\n⚠️ Klik tombol Sinkron di kanan bawah untuk mengirim ke server.`);
+        }
+    } else {
+        const resultMsg = `✅ Import Berhasil!\n\nDitambahkan: ${added} soal\n${failed > 0 ? `Gagal: ${failed} soal` : 'Semua soal berhasil diproses!'}`;
+        alert(resultMsg);
+    }
 }
 
 function importDatabase(event) {
