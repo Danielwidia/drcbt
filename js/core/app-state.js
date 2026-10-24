@@ -46,6 +46,145 @@ function showLoginScreen() {
 }
 window.showLoginScreen = showLoginScreen;
 
+function saveSession() {
+    if (!currentSiswa) return;
+    try {
+        const session = {
+            user: currentSiswa,
+            timestamp: new Date().getTime()
+        };
+        localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    } catch (e) {
+        console.warn('Failed to save session to localStorage:', e.message);
+    }
+}
+window.saveSession = saveSession;
+
+function clearSession() {
+    if (currentSiswa && currentSiswa.role === 'student' && typeof updateCompletionCharts === 'function') {
+        try { updateCompletionCharts(); } catch (e) {}
+    }
+    currentSiswa = null;
+    window.currentSiswa = null;
+    try {
+        localStorage.removeItem(SESSION_KEY);
+    } catch (e) {
+        console.warn('Failed to clear session from localStorage:', e.message);
+    }
+}
+window.clearSession = clearSession;
+
+function showError(customMsg) {
+    const err = document.getElementById('login-error');
+    if (!err) return;
+
+    const defaultRoleMsg = window.loginType === 'teacher'
+        ? 'Password default: escrido123'
+        : 'Password default: escrido';
+
+    err.innerHTML = (customMsg || 'ID atau password salah!') + `<br><span class="text-[10px] opacity-70 mt-1 block tracking-tight">• ${defaultRoleMsg}</span>`;
+    err.classList.remove('hidden');
+}
+window.showError = showError;
+
+async function handleLogin() {
+    const usernameEl = document.getElementById('username');
+    const passwordEl = document.getElementById('password');
+    if (!usernameEl || !passwordEl) return;
+
+    const u = usernameEl.value.trim().toUpperCase();
+    const p = passwordEl.value.trim();
+
+    if (!u || !p) {
+        showError('ID dan password tidak boleh kosong.');
+        return;
+    }
+
+    if (!db.students || db.students.length === 0) {
+        alert('Database belum siap. Silakan refresh halaman.');
+        return;
+    }
+
+    let user = db.students.find(x => x && x.id && String(x.id).toUpperCase() === u && String(x.password) === p);
+
+    if (!user) {
+        const nameSearch = u.toLowerCase();
+        if (window.loginType === 'student') {
+            user = db.students.find(x =>
+                x && x.name && String(x.name).toLowerCase().includes(nameSearch) &&
+                String(x.password) === p && x.role === 'student'
+            );
+        } else if (window.loginType === 'admin' || window.loginType === 'teacher') {
+            user = db.students.find(x =>
+                x && x.name && String(x.name).toLowerCase().includes(nameSearch) &&
+                String(x.password) === p && x.role === window.loginType
+            );
+        }
+    }
+
+    if (user) {
+        const roleMatch = (window.loginType === user.role) || (!window.loginType);
+        if (roleMatch) {
+            currentSiswa = user;
+            window.currentSiswa = user;
+            if (user.role === 'student' && typeof updateCompletionCharts === 'function') updateCompletionCharts();
+            saveSession();
+
+            try { await logActivity('Login ke aplikasi'); } catch (e) {}
+
+            if (user.role === 'admin') window.location.href = 'admin.html';
+            else if (user.role === 'student') window.location.href = 'siswa.html';
+            else if (user.role === 'teacher') window.location.href = 'guru.html';
+        } else {
+            showError(`Akun ini terdaftar sebagai ${user.role}. Silakan klik menu login yang sesuai.`);
+        }
+    } else {
+        const idOnlyMatch = db.students.find(x => x && x.id && String(x.id).toUpperCase() === u);
+        if (idOnlyMatch) {
+            showError('ID ditemukan, tapi password salah. Coba lagi.');
+        } else {
+            showError('ID atau Nama tidak ditemukan. Pastikan data sudah tersimpan di Admin.');
+        }
+    }
+}
+window.handleLogin = handleLogin;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('login-btn');
+    if (btn) btn.addEventListener('click', handleLogin);
+
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+
+    if (usernameInput) {
+        usernameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleLogin();
+        });
+    }
+    if (passwordInput) {
+        passwordInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleLogin();
+        });
+    }
+});
+
+function logout() {
+    if (typeof isExamActive !== 'undefined') isExamActive = false;
+    if (currentSiswa && currentSiswa.role === 'student') {
+        if (typeof saveStudentExamProgress === 'function') {
+            try { saveStudentExamProgress(); } catch (e) {}
+        }
+        if (navigator.onLine && typeof updateLiveExamStatus === 'function') {
+            updateLiveExamStatus(false).catch(e => console.warn('[logout] updateLiveExamStatus:', e.message));
+        }
+    }
+    clearSession();
+    setTimeout(() => {
+        window.location.href = 'index.html';
+    }, 300);
+}
+window.logout = logout;
+
 function reloadPage() {
     // Show loading overlay
     const overlay = document.getElementById('loading-overlay');
@@ -58,6 +197,7 @@ function reloadPage() {
         location.reload();
     }, 500);
 }
+window.reloadPage = reloadPage;
 
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 7000) {
     const controller = new AbortController();
