@@ -70,6 +70,50 @@ const STUDENT_EXAM_PROGRESS_KEY = "EXAM_DORKAS_STUDENT_PROGRESS";
 
 const STUDENT_ADMIN_SAVED_PROGRESS_KEY = "EXAM_DORKAS_STUDENT_ADMIN_SAVED_PROGRESS";
 
+// ─── Teacher Subject/Rombel Helpers ─────────────────────────────────────────
+// These helpers derive which subjects and rombels a teacher is authorised for.
+// Admin users are treated as having access to everything.
+
+function teacherSubjectNames(teacher) {
+    if (!teacher) return [];
+    if (teacher.role === 'admin') {
+        return (db.subjects || []).map(s => typeof s === 'string' ? s : s.name);
+    }
+    if (!Array.isArray(teacher.subjects)) return [];
+    return teacher.subjects.map(s => typeof s === 'string' ? s : s.name);
+}
+window.teacherSubjectNames = teacherSubjectNames;
+
+function teacherAllowedRombels(teacher, subjectName) {
+    if (!teacher) return [];
+    if (teacher.role === 'admin') {
+        return db.rombels || [];
+    }
+    if (!Array.isArray(teacher.subjects)) return [];
+    const entry = teacher.subjects.find(s => (typeof s === 'string' ? s : s.name) === subjectName);
+    if (!entry) return [];
+    if (typeof entry === 'string') {
+        return teacher.rombels || [];
+    }
+    return entry.rombels || [];
+}
+window.teacherAllowedRombels = teacherAllowedRombels;
+
+function teacherCombinedRombels(teacher) {
+    if (!teacher || !Array.isArray(teacher.subjects)) return [];
+    const set = new Set();
+    teacher.subjects.forEach(s => {
+        const roms = typeof s === 'string' ? (teacher.rombels || []) : (s.rombels || []);
+        roms.forEach(r => set.add(r));
+    });
+    if (Array.isArray(teacher.rombels)) {
+        teacher.rombels.forEach(r => set.add(r));
+    }
+    return Array.from(set);
+}
+window.teacherCombinedRombels = teacherCombinedRombels;
+// ─────────────────────────────────────────────────────────────────────────────
+
 window.addEventListener('error', event => {
     console.error('%c[Global Error]', 'background: red; color: white; font-weight: bold', event.message, event.filename, 'line', event.lineno, 'col', event.colno);
 });
