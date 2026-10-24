@@ -3111,3 +3111,184 @@ function stopLiveProgressPolling() {
 }
 
 
+// ─── Missing Teacher Functions (restored from refactoring gap) ──────────────
+
+function toggleTeacherSelectAll(event) {
+    const checked = event.target.checked;
+    const selectedSubject = document.getElementById('teacher-filter-mapel')?.value || '';
+    const selectedRombel = document.getElementById('teacher-filter-rombel')?.value || '';
+    let list = db.questions.filter(q => {
+        const qSubject = q.mapel;
+        if (!qSubject) return false;
+        const qSubjectName = typeof qSubject === 'string' ? qSubject : qSubject.name || qSubject;
+        if (!teacherSubjectNames(currentSiswa).includes(qSubjectName)) return false;
+        const allowed = teacherAllowedRombels(currentSiswa, qSubjectName);
+        if (!allowed.includes(q.rombel)) return false;
+        return true;
+    });
+    if (selectedSubject) list = list.filter(q => { const s = typeof q.mapel === 'string' ? q.mapel : q.mapel.name || q.mapel; return s === selectedSubject; });
+    if (selectedRombel) list = list.filter(q => q.rombel === selectedRombel);
+    if (checked) { list.forEach(q => selectedTeacherQuestions.add(q)); }
+    else { list.forEach(q => selectedTeacherQuestions.delete(q)); }
+    renderTeacherQuestions();
+}
+window.toggleTeacherSelectAll = toggleTeacherSelectAll;
+
+function exportQuestions() {
+    let questionsToExport = [];
+    if (window.isTeacherMode || (currentSiswa && currentSiswa.role === 'teacher')) {
+        const fM = document.getElementById('teacher-filter-mapel')?.value || '';
+        const fR = document.getElementById('teacher-filter-rombel')?.value || '';
+        questionsToExport = db.questions.filter(q => {
+            const qSubject = typeof q.mapel === 'string' ? q.mapel : q.mapel?.name || q.mapel;
+            if (!teacherSubjectNames(currentSiswa).includes(qSubject)) return false;
+            const allowed = teacherAllowedRombels(currentSiswa, qSubject);
+            if (!allowed.includes(q.rombel)) return false;
+            if (fM && qSubject !== fM) return false;
+            if (fR && q.rombel !== fR) return false;
+            return true;
+        });
+    } else {
+        const fR = document.getElementById('filter-rombel')?.value || 'ALL';
+        const fM = document.getElementById('filter-mapel')?.value || 'ALL';
+        questionsToExport = db.questions.filter(q => (fR === 'ALL' || q.rombel === fR) && (fM === 'ALL' || q.mapel === fM));
+    }
+    if (questionsToExport.length === 0) { alert('Tidak ada soal yang bisa diexport berdasarkan filter saat ini.'); return; }
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(questionsToExport, null, 2));
+    const a = document.createElement('a');
+    a.setAttribute("href", dataStr);
+    a.setAttribute("download", 'soal_cbt_export_' + new Date().getTime() + '.json');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+}
+window.exportQuestions = exportQuestions;
+
+function detectProviderFromKey(key) {
+    if (!key) return 'Unknown';
+    if (key.startsWith('AIzaSy')) return 'Google Gemini';
+    if (key.startsWith('sk-')) return 'OpenAI (ChatGPT)';
+    if (key.startsWith('sk-or-v1-') || key.startsWith('sk-or-')) return 'OpenRouter';
+    if (key.startsWith('gsk_')) return 'Groq';
+    if (key.includes('deepseek')) return 'DeepSeek';
+    return 'Other Provider';
+}
+
+function toggleNewKeyVisibility() {
+    const input = document.getElementById('new-api-key-input');
+    const icon = document.getElementById('toggle-new-key-icon');
+    if (!input) return;
+    if (input.type === 'password') { input.type = 'text'; if (icon) icon.classList.replace('fa-eye', 'fa-eye-slash'); }
+    else { input.type = 'password'; if (icon) icon.classList.replace('fa-eye-slash', 'fa-eye'); }
+}
+window.toggleNewKeyVisibility = toggleNewKeyVisibility;
+
+function addTeacherAPIKeyForm() {
+    const input = document.getElementById('new-api-key-input');
+    if (!input) { if (typeof showToast === 'function') showToast('Form tidak ditemukan', 'error'); return; }
+    const apiKey = input.value.trim();
+    if (!apiKey) { if (typeof showToast === 'function') showToast('Masukkan API Key terlebih dahulu', 'error'); return; }
+    if (!currentSiswa || currentSiswa.role !== 'teacher') { alert('Hanya guru yang dapat menambahkan API Key'); return; }
+    const btn = (window.event && window.event.target) ? window.event.target : null;
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Memproses...'; }
+    fetch(getApiBaseUrl() + '/api/teacher/add-api-key', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teacherId: currentSiswa.id, apiKey })
+    }).then(res => res.json()).then(data => {
+        if (!data.ok) { if (typeof showToast === 'function') showToast(data.error || 'Gagal menambahkan API Key', 'error'); return; }
+        if (typeof updateApiKeysWarningBanner === 'function') updateApiKeysWarningBanner('', '');
+        if (!Array.isArray(currentSiswa.apiKeys)) currentSiswa.apiKeys = [];
+        const trimmedKey = apiKey.trim();
+        const exists = currentSiswa.apiKeys.some(e => (typeof e === 'string' ? e.trim() : (e.key || '').trim()) === trimmedKey);
+        if (!exists) currentSiswa.apiKeys.push({ key: trimmedKey, status: 'active', addedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), note: '' });
+        if (typeof save === 'function') save();
+        input.value = ''; input.type = 'password';
+        renderTeacherAPIKeys();
+        if (typeof updateRealtimeStats === 'function') updateRealtimeStats();
+        const msg = data.vercelStatus ? ('API Key ditambahkan! ' + data.vercelStatus) : 'API Key berhasil ditambahkan!';
+        if (typeof showToast === 'function') showToast(msg, 'success');
+    }).catch(err => { console.error('API Key Error:', err); if (typeof showToast === 'function') showToast('Terjadi kesalahan: ' + err.message, 'error'); })
+    .finally(() => { if (btn) { btn.disabled = false; btn.innerHTML = originalText; } });
+}
+window.addTeacherAPIKeyForm = addTeacherAPIKeyForm;
+
+function removeTeacherAPIKey(index) {
+    if (!confirm('Apakah Anda yakin ingin menghapus API Key ini?')) return;
+    if (!currentSiswa || currentSiswa.role !== 'teacher') { alert('Hanya guru yang dapat menghapus API Key'); return; }
+    fetch(getApiBaseUrl() + '/api/teacher/remove-api-key', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teacherId: currentSiswa.id, keyIndex: index })
+    }).then(res => res.json()).then(data => {
+        if (!data.ok) { if (typeof showToast === 'function') showToast(data.error || 'Gagal menghapus API Key', 'error'); return; }
+        if (Array.isArray(currentSiswa.apiKeys)) currentSiswa.apiKeys.splice(index, 1);
+        if (typeof save === 'function') save();
+        renderTeacherAPIKeys();
+        if (typeof updateRealtimeStats === 'function') updateRealtimeStats();
+        if (typeof showToast === 'function') showToast('API Key berhasil dihapus!', 'success');
+    }).catch(err => { console.error('Remove API Key Error:', err); if (typeof showToast === 'function') showToast('Terjadi kesalahan: ' + err.message, 'error'); });
+}
+window.removeTeacherAPIKey = removeTeacherAPIKey;
+
+async function renderTeacherAPIKeys() {
+    const listContainer = document.getElementById('api-keys-list');
+    if (!listContainer) return;
+    if (!currentSiswa || !Array.isArray(currentSiswa.apiKeys)) {
+        listContainer.innerHTML = '<div class="text-center py-12 text-slate-400"><i class="fas fa-circle-notch fa-spin text-4xl mb-4 opacity-20"></i><p class="font-bold">Memuat daftar API Key...</p></div>';
+        if (typeof syncTeacherAPIKeysFromServer === 'function') await syncTeacherAPIKeysFromServer();
+    }
+    if (!currentSiswa || !Array.isArray(currentSiswa.apiKeys)) {
+        listContainer.innerHTML = '<div class="text-center py-12 text-slate-400"><i class="fas fa-key text-4xl mb-4 opacity-20"></i><p class="font-bold">Belum ada API Key pribadi</p><p class="text-xs">Gunakan form di atas untuk menambahkan key Gemini atau ChatGPT.</p></div>';
+        if (typeof updateTeacherApiKeysStats === 'function') updateTeacherApiKeysStats([]);
+        return;
+    }
+    const filter = document.getElementById('api-keys-filter')?.value || 'all';
+    let keys = currentSiswa.apiKeys;
+    if (typeof updateTeacherApiKeysStats === 'function') updateTeacherApiKeysStats(currentSiswa.apiKeys);
+    if (filter === 'active') keys = keys.filter(k => (typeof k === 'object' ? k.status : 'active') !== 'exhausted');
+    else if (filter === 'exhausted') keys = keys.filter(k => (typeof k === 'object' ? k.status : 'active') === 'exhausted');
+    if (keys.length === 0) {
+        listContainer.innerHTML = '<div class="text-center py-12 text-slate-400"><i class="fas fa-filter text-4xl mb-4 opacity-20"></i><p class="font-bold">Tidak ada key yang sesuai filter</p></div>';
+        return;
+    }
+    listContainer.innerHTML = keys.map((key, index) => {
+        const fullKey = typeof key === 'object' ? (key.key || '') : key;
+        const status = typeof key === 'object' ? (key.status || 'active') : 'active';
+        const displayKey = fullKey.length > 20 ? fullKey.substring(0, 10) + '...' + fullKey.substring(fullKey.length - 8) : fullKey;
+        const provider = detectProviderFromKey(fullKey);
+        const isExhausted = status === 'exhausted';
+        return `<div class="bg-white border ${isExhausted ? 'border-red-100 bg-red-50/10' : 'border-slate-100'} rounded-2xl p-4 flex items-center justify-between group transition-all hover:shadow-md"><div class="flex items-center gap-4"><div class="w-10 h-10 ${isExhausted ? 'bg-red-100 text-red-600' : 'bg-sky-100 text-sky-600'} rounded-xl flex items-center justify-center text-lg"><i class="fas ${provider.includes('Gemini') ? 'fa-gem' : (provider.includes('ChatGPT') ? 'fa-robot' : 'fa-key')}"></i></div><div><div class="flex items-center gap-2 mb-1"><span class="text-xs font-black text-slate-800">${provider}</span><span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${isExhausted ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'} uppercase tracking-tight">${isExhausted ? 'Habis' : 'Aktif'}</span></div><p class="text-xs font-mono text-slate-500">${displayKey}</p></div></div><div class="flex items-center gap-2"><button onclick="removeTeacherAPIKey(${index})" class="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Hapus Key"><i class="fas fa-trash-alt text-sm"></i></button></div></div>`;
+    }).join('');
+}
+window.renderTeacherAPIKeys = renderTeacherAPIKeys;
+
+async function renderGlobalAPIKeys() {
+    const container = document.getElementById('global-api-keys-list');
+    if (!container) return;
+    try {
+        const response = await fetch(getApiBaseUrl() + '/api/teacher/global-api-keys');
+        const result = await response.json();
+        if (result.ok && result.globalKeys && result.globalKeys.length > 0) {
+            if (typeof updateGlobalApiKeysStats === 'function') updateGlobalApiKeysStats(result.globalKeys);
+        }
+    } catch (err) { console.error('Error loading global API keys:', err); }
+}
+window.renderGlobalAPIKeys = renderGlobalAPIKeys;
+
+function toggleGlobalAPIKeysList() {
+    const list = document.getElementById('global-api-keys-list');
+    const icon = document.getElementById('global-api-keys-toggle-icon');
+    if (!list || !icon) return;
+    const isHidden = list.classList.contains('hidden');
+    if (isHidden) {
+        list.classList.remove('hidden');
+        icon.style.transform = 'rotate(180deg)';
+        if (list.children.length === 0) renderGlobalAPIKeys();
+    } else {
+        list.classList.add('hidden');
+        icon.style.transform = 'rotate(0deg)';
+    }
+}
+window.toggleGlobalAPIKeysList = toggleGlobalAPIKeysList;
+
+// ─────────────────────────────────────────────────────────────────────────────
