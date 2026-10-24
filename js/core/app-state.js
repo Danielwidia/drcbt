@@ -1738,6 +1738,12 @@ async function save(options = {}) {
 }
 window.save = save;
 
+function toggleMobileMenu() {
+    const menu = document.getElementById('mobile-menu');
+    if (menu) menu.classList.toggle('hidden');
+}
+window.toggleMobileMenu = toggleMobileMenu;
+
 // --- AUTO INITIALIZE ON DOM LOAD ---
 const startAppInitialization = async () => {
     // Safety fallback timer: guarantee overlay removal after max 2.5s regardless of init progress
