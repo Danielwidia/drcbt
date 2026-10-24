@@ -1793,6 +1793,145 @@ const startAppInitialization = async () => {
     }
 };
 
+// ===== IMAGE UTILITY FUNCTIONS =====
+
+async function uploadImageToServer(base64OrBlob, fileName = 'image.jpg') {
+    const formData = new FormData();
+
+    let blob;
+    if (typeof base64OrBlob === 'string' && base64OrBlob.startsWith('data:')) {
+        const resp = await fetch(base64OrBlob);
+        blob = await resp.blob();
+    } else {
+        blob = base64OrBlob;
+    }
+
+    formData.append('image', blob, fileName);
+
+    const res = await fetch(getApiBaseUrl() + '/api/upload-image', {
+        method: 'POST',
+        body: formData
+    });
+
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+        throw new Error(err.error || 'Server error');
+    }
+
+    const data = await res.json();
+    return data.url;
+}
+window.uploadImageToServer = uploadImageToServer;
+
+async function addImageUrl() {
+    const urlInput = document.getElementById('q-image-url');
+    const url = urlInput.value.trim();
+    if (!url) return;
+
+    if (!window.storedImages) window.storedImages = [];
+
+    if (url.startsWith('data:image')) {
+        if (typeof showToast === 'function') showToast('Mengunggah data gambar...', 'info');
+        try {
+            const compressed = await compressImage(url);
+            const cloudUrl = await uploadImageToServer(compressed, 'pasted-image.jpg');
+            window.storedImages.push(cloudUrl);
+            if (typeof showToast === 'function') showToast('Gambar berhasil diunggah ke cloud', 'success');
+        } catch (err) {
+            console.error('Failed to upload pasted image:', err);
+            if (typeof showToast === 'function') showToast('Gagal upload ke cloud: ' + err.message, 'error');
+            window.storedImages.push(url);
+        }
+    } else {
+        window.storedImages.push(url);
+    }
+
+    urlInput.value = '';
+    renderImagePreviews();
+}
+window.addImageUrl = addImageUrl;
+
+function compressImage(base64Str, maxWidth = 1024, maxHeight = 1024, quality = 0.7) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.src = base64Str;
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height) {
+                if (width > maxWidth) {
+                    height *= maxWidth / width;
+                    width = maxWidth;
+                }
+            } else {
+                if (height > maxHeight) {
+                    width *= maxHeight / height;
+                    height = maxHeight;
+                }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+    });
+}
+window.compressImage = compressImage;
+
+function renderImagePreviews() {
+    const previewContainer = document.getElementById('q-images-preview');
+    const listContainer = document.getElementById('q-images-list');
+    if (!previewContainer || !listContainer) return;
+    previewContainer.innerHTML = '';
+    listContainer.innerHTML = '';
+
+    if (!window.storedImages) return;
+
+    window.storedImages.forEach((img, idx) => {
+        const isUrl = typeof img === 'string' && (img.startsWith('http') || img.startsWith('https'));
+
+        // Show thumbnail preview
+        const thumb = document.createElement('div');
+        thumb.className = 'relative w-24 h-24 border-2 border-sky-300 rounded-lg overflow-hidden group hover:border-red-400 transition-all cursor-pointer';
+        thumb.onclick = () => {
+            window.storedImages.splice(idx, 1);
+            renderImagePreviews();
+        };
+
+        const imgEl = document.createElement('img');
+        imgEl.src = typeof normalizeImgSrc === 'function' ? normalizeImgSrc(img) : img;
+        imgEl.className = 'w-full h-full object-cover';
+
+        const badge = document.createElement('div');
+        badge.className = 'absolute top-1 right-1 bg-sky-600 text-white text-[10px] rounded px-1 font-bold';
+        badge.textContent = idx + 1;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'absolute inset-0 bg-red-500/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity';
+        overlay.innerHTML = '<i class="fas fa-trash text-white text-xs"></i>';
+
+        thumb.appendChild(imgEl);
+        thumb.appendChild(badge);
+        thumb.appendChild(overlay);
+        previewContainer.appendChild(thumb);
+
+        // Add to list
+        const item = document.createElement('div');
+        item.className = 'flex justify-between items-center bg-slate-50 p-1.5 rounded-lg';
+        const label = isUrl ? '🔗 URL' : '📁 File';
+        const name = isUrl ? (img.length > 30 ? img.substring(0, 30) + '...' : img) : `Gambar ${idx + 1}`;
+        item.innerHTML = `<span class="text-[10px] font-bold text-slate-500">${label}: ${name}</span>`;
+        listContainer.appendChild(item);
+    });
+}
+window.renderImagePreviews = renderImagePreviews;
+
+// ===== END IMAGE UTILITY FUNCTIONS =====
+
 // ===== MISSING UTILITY FUNCTIONS =====
 
 let currentQType = 'single';
