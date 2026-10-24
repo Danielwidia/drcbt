@@ -279,9 +279,47 @@ window.hideLoadingOverlay = hideLoadingOverlay;
 async function init() {
     try {
         if (typeof closeModals === 'function') closeModals();
+
+        // Restore any saved session before page-specific admin logic runs
+        try {
+            const savedSession = localStorage.getItem(SESSION_KEY);
+            if (savedSession) {
+                const session = JSON.parse(savedSession);
+                if (session && session.user) {
+                    currentSiswa = session.user;
+                    window.currentSiswa = session.user;
+                    console.log('[init] Restored session for:', session.user.role, session.user.id);
+                }
+            }
+        } catch (err) {
+            console.warn('[init] Failed to restore session from localStorage:', err.message || err);
+        }
+
         if (typeof fetchSchoolSettings === 'function') await fetchSchoolSettings();
         if (typeof showLoginScreen === 'function' && document.getElementById('login-screen')) {
             showLoginScreen();
+        }
+
+        if (currentSiswa && currentSiswa.id) {
+            try {
+                await ensureDataLoaded('students');
+                const latestUser = Array.isArray(db.students)
+                    ? db.students.find(x => x && x.id === currentSiswa.id && x.password === currentSiswa.password)
+                    : null;
+
+                if (latestUser) {
+                    currentSiswa = latestUser;
+                    window.currentSiswa = latestUser;
+                    saveSession();
+                } else {
+                    clearSession();
+                    if (window.location.pathname.endsWith('admin.html') || window.location.pathname.endsWith('guru.html') || window.location.pathname.endsWith('siswa.html')) {
+                        window.location.href = 'index.html';
+                    }
+                }
+            } catch (err) {
+                console.warn('[init] Session verification failed:', err.message || err);
+            }
         }
     } catch (err) {
         console.error('[init] Initialization failed:', err);
