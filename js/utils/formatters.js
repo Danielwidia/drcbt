@@ -3,6 +3,10 @@
  * Part of CBT application refactored module
  */
 
+// Polling state for real-time API key stats (teacher dashboard)
+let apiKeysStatsPollingInterval = null;
+const STATS_POLLING_INTERVAL = 3000; // 3 seconds
+
 function getApiBaseUrl() {
     // Priority 1: User-defined remote server from settings
     const remote = localStorage.getItem(REMOTE_SERVER_KEY);
