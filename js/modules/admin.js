@@ -2267,4 +2267,106 @@ async function saveLiveProgressStateAndReload() {
 window.saveLiveProgressState = saveLiveProgressState;
 window.saveLiveProgressStateAndReload = saveLiveProgressStateAndReload;
 
+/**
+ * Shuffle the order of questions (and their answer options) in the question bank,
+ * grouped by the current admin filter (rombel / mapel).
+ * Called by the "Acak" button in Bank Soal.
+ */
+function shuffleQuestions() {
+    const isTeacher = window.isTeacherMode || (typeof currentSiswa !== 'undefined' && currentSiswa && currentSiswa.role === 'teacher');
+    let questionsToShuffleIndices = [];
+    let fM = '';
+    let fR = '';
+
+    if (isTeacher) {
+        fM = document.getElementById('teacher-filter-mapel')?.value || '';
+        fR = document.getElementById('teacher-filter-rombel')?.value || '';
+        for (let i = 0; i < db.questions.length; i++) {
+            const q = db.questions[i];
+            const qSubject = typeof q.mapel === 'string' ? q.mapel : q.mapel?.name || q.mapel;
+            if (!teacherSubjectNames(currentSiswa).includes(qSubject)) continue;
+            const allowed = teacherAllowedRombels(currentSiswa, qSubject);
+            if (!allowed.includes(q.rombel)) continue;
+            if (fM && qSubject !== fM) continue;
+            if (fR && q.rombel !== fR) continue;
+            questionsToShuffleIndices.push(i);
+        }
+    } else {
+        fR = document.getElementById('filter-rombel')?.value || 'ALL';
+        fM = document.getElementById('filter-mapel')?.value || 'ALL';
+        for (let i = 0; i < db.questions.length; i++) {
+            const q = db.questions[i];
+            if ((fR === 'ALL' || q.rombel === fR) && (fM === 'ALL' || q.mapel === fM)) {
+                questionsToShuffleIndices.push(i);
+            }
+        }
+    }
+
+    if (questionsToShuffleIndices.length === 0) {
+        alert('Tidak ada soal yang sesuai dengan filter saat ini untuk diacak.');
+        return;
+    }
+
+    let msg = 'Acak urutan semua soal dan opsi jawabannya?';
+    if (isTeacher) {
+        const mapelLabel = fM ? fM : 'Semua Mapel';
+        const rombelLabel = fR ? fR : 'Semua Rombel';
+        if (fM || fR) {
+            msg = `Acak urutan ${questionsToShuffleIndices.length} soal beserta opsi jawabannya dengan filter:\nMapel: ${mapelLabel}\nRombel: ${rombelLabel}?`;
+        } else {
+            msg = `Acak urutan ${questionsToShuffleIndices.length} soal beserta opsi jawabannya milik Anda?`;
+        }
+    } else {
+        if (fR !== 'ALL' || fM !== 'ALL') {
+            const rombelLabel = fR === 'ALL' ? 'Semua Rombel' : fR;
+            const mapelLabel = fM === 'ALL' ? 'Semua Mapel' : fM;
+            msg = `Acak urutan ${questionsToShuffleIndices.length} soal beserta opsi jawabannya dengan filter:\nRombel: ${rombelLabel}\nMapel: ${mapelLabel}?`;
+        }
+    }
+
+    if (!confirm(msg)) return;
+
+    const filteredQuestions = questionsToShuffleIndices.map(i => db.questions[i]);
+
+    // Fisher-Yates shuffle of question order
+    for (let i = filteredQuestions.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [filteredQuestions[i], filteredQuestions[j]] = [filteredQuestions[j], filteredQuestions[i]];
+    }
+
+    // Also shuffle answer options for each question
+    filteredQuestions.forEach(q => {
+        if (typeof shuffleQuestionOptionsInBank === 'function') {
+            shuffleQuestionOptionsInBank(q);
+        }
+    });
+
+    for (let i = 0; i < questionsToShuffleIndices.length; i++) {
+        db.questions[questionsToShuffleIndices[i]] = filteredQuestions[i];
+    }
+
+    save();
+    if (isTeacher) {
+        if (typeof renderTeacherQuestions === 'function') renderTeacherQuestions();
+    } else {
+        if (typeof renderAdminQuestions === 'function') renderAdminQuestions();
+    }
+    if (typeof showToast === 'function') showToast('Berhasil mengacak urutan soal dan opsi jawaban!', 'success');
+}
+
+window.shuffleQuestions = shuffleQuestions;
+
+/**
+ * Clear the search input and re-render admin questions
+ */
+function clearSearch() {
+    const searchInput = document.getElementById('search-questions');
+    if (searchInput) {
+        searchInput.value = '';
+    }
+    if (typeof renderAdminQuestions === 'function') {
+        renderAdminQuestions();
+    }
+}
+
 
