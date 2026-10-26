@@ -2328,16 +2328,48 @@ async function callAI(prompt, teacherId = null) {
 /**
  * Save an external AI image to the local "images" folder
  */
+function getImageSearchContextText(value) {
+    if (Array.isArray(value)) return value.map(getImageSearchContextText).filter(Boolean).join(' ');
+    if (typeof value !== 'string') return '';
+
+    return value
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/https?:\/\/\S+/gi, ' ')
+        .replace(/&nbsp;|&#160;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&quot;|&#34;/gi, '"')
+        .replace(/&#39;|&apos;/gi, "'")
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function buildSerpApiImageQuery(imageSearchTerms, contextText = '', subjectContext = '') {
+    const parts = [
+        getImageSearchContextText(imageSearchTerms).slice(0, 100),
+        getImageSearchContextText(subjectContext).slice(0, 70),
+        getImageSearchContextText(contextText).slice(0, 150)
+    ].filter(Boolean);
+    const query = parts.join(' ').slice(0, 320).trim();
+    if (!query) throw new Error('Kata kunci dan konteks pencarian gambar kosong.');
+    return query;
+}
+
 async function searchSerpApiImageUrl(query) {
     const apiKey = process.env.SERPAPI_API_KEY;
     if (!apiKey) {
         throw new Error('SERPAPI_API_KEY belum dikonfigurasi untuk mencari gambar soal.');
     }
 
+    const stopWords = new Set([
+        'dan', 'yang', 'untuk', 'dari', 'dengan', 'pada', 'adalah', 'apa', 'bagaimana', 'sebutkan',
+        'the', 'and', 'for', 'from', 'with', 'what', 'which', 'how', 'image', 'gambar', 'soal'
+    ]);
     const searchUrl = new URL('https://serpapi.com/search.json');
     searchUrl.searchParams.set('engine', 'google_images');
     searchUrl.searchParams.set('q', query);
     searchUrl.searchParams.set('safe', 'active');
+    searchUrl.searchParams.set('hl', 'id');
+    searchUrl.searchParams.set('gl', 'id');
     searchUrl.searchParams.set('api_key', apiKey);
 
     const response = await fetch(searchUrl, { signal: AbortSignal.timeout(15000) });
@@ -2346,16 +2378,31 @@ async function searchSerpApiImageUrl(query) {
         throw new Error(`Pencarian gambar SerpAPI gagal (HTTP ${response.status})${data.error ? `: ${data.error}` : ''}`);
     }
 
-    const imageUrl = Array.isArray(data.images_results)
-        ? data.images_results.map(result => result?.original).find(candidate => {
-            if (typeof candidate !== 'string') return false;
+    const results = Array.isArray(data.images_results) ? data.images_results : [];
+    const getRelevantTokens = text => new Set(
+        text.toLowerCase()
+            .split(/[^\p{L}\p{N}]+/u)
+            .filter(token => token.length > 2 && !stopWords.has(token))
+    );
+    const queryTokens = getRelevantTokens(query);
+    const rankedResults = results
+        .map((result, index) => {
+            const candidate = result?.original;
+            if (typeof candidate !== 'string') return null;
             try {
-                return ['http:', 'https:'].includes(new URL(candidate).protocol);
+                if (!['http:', 'https:'].includes(new URL(candidate).protocol)) return null;
             } catch {
-                return false;
+                return null;
             }
+
+            const description = `${result.title || ''} ${result.snippet || ''} ${result.source || ''}`.toLowerCase();
+            const resultTokens = getRelevantTokens(description);
+            const relevance = [...queryTokens].reduce((score, token) => score + (resultTokens.has(token) ? 1 : 0), 0);
+            return { candidate, index, relevance };
         })
-        : null;
+        .filter(Boolean)
+        .sort((left, right) => right.relevance - left.relevance || left.index - right.index);
+    const imageUrl = rankedResults[0]?.candidate || null;
 
     if (!imageUrl) {
         throw new Error(`SerpAPI tidak menemukan URL gambar yang valid untuk pencarian "${query}".`);
@@ -2363,7 +2410,7 @@ async function searchSerpApiImageUrl(query) {
     return imageUrl;
 }
 
-async function resolveSerpApiImagePlaceholder(url, imageCache, retainedImageUrls) {
+async function resolveSerpApiImagePlaceholder(url, imageCache, retainedImageUrls, contextText = '', subjectContext = '') {
     const prefix = 'https://ai-image.local/prompt/';
     if (typeof url !== 'string' || !url.startsWith(prefix)) return url;
 
@@ -2373,8 +2420,7 @@ async function resolveSerpApiImagePlaceholder(url, imageCache, retainedImageUrls
     } catch {
         query = query.replace(/\+/g, ' ');
     }
-    query = query.trim();
-    if (!query) throw new Error('Deskripsi gambar untuk pencarian SerpAPI kosong.');
+    query = buildSerpApiImageQuery(query, contextText, subjectContext);
 
     if (!imageCache.has(query)) {
         imageCache.set(query, searchSerpApiImageUrl(query));
@@ -2384,14 +2430,21 @@ async function resolveSerpApiImagePlaceholder(url, imageCache, retainedImageUrls
     return imageUrl;
 }
 
-async function processSerpApiImagesInHtml(html, imageCache, retainedImageUrls) {
+async function processSerpApiImagesInHtml(html, imageCache, retainedImageUrls, subjectContext = '') {
     if (!html || typeof html !== 'string' || !html.includes('<img')) return html;
 
     const imgRegex = /(<img\b[^>]*?\bsrc=["'])([^"']+)(["'][^>]*>)/gi;
     const matches = [...html.matchAll(imgRegex)];
     let processedHtml = html;
     for (const match of matches) {
-        const imageUrl = await resolveSerpApiImagePlaceholder(match[2], imageCache, retainedImageUrls);
+        const nearbyContext = html.slice(Math.max(0, match.index - 300), match.index + match[0].length + 300);
+        const imageUrl = await resolveSerpApiImagePlaceholder(
+            match[2],
+            imageCache,
+            retainedImageUrls,
+            getImageSearchContextText(nearbyContext),
+            subjectContext
+        );
         if (imageUrl !== match[2]) {
             processedHtml = processedHtml.split(match[2]).join(imageUrl);
         }
@@ -2399,21 +2452,28 @@ async function processSerpApiImagesInHtml(html, imageCache, retainedImageUrls) {
     return processedHtml;
 }
 
-async function processSerpApiImagesInQuestions(questions, imageCache = new Map()) {
+async function processSerpApiImagesInQuestions(questions, imageCache = new Map(), subjectContext = '') {
     const retainedImageUrls = new Set();
     if (!Array.isArray(questions)) return { questions, retainedImageUrls };
 
     for (const question of questions) {
+        const questionContext = getImageSearchContextText([
+            question.text,
+            question.options,
+            question.questions,
+            question.answers
+        ]);
+        const contextText = questionContext;
         if (typeof question.image === 'string') {
-            question.image = await resolveSerpApiImagePlaceholder(question.image, imageCache, retainedImageUrls);
+            question.image = await resolveSerpApiImagePlaceholder(question.image, imageCache, retainedImageUrls, contextText, subjectContext);
         }
         if (Array.isArray(question.images)) {
             for (let index = 0; index < question.images.length; index++) {
-                question.images[index] = await resolveSerpApiImagePlaceholder(question.images[index], imageCache, retainedImageUrls);
+                question.images[index] = await resolveSerpApiImagePlaceholder(question.images[index], imageCache, retainedImageUrls, contextText, subjectContext);
             }
         }
         if (typeof question.text === 'string') {
-            question.text = await processSerpApiImagesInHtml(question.text, imageCache, retainedImageUrls);
+            question.text = await processSerpApiImagesInHtml(question.text, imageCache, retainedImageUrls, subjectContext);
         }
     }
 
@@ -2796,7 +2856,11 @@ app.post('/api/generate-ai', async (req, res) => {
         let normalizedQuestions = parsed.map(q => fullNormalizeQuestion(q, mapel, rombel));
 
         // Resolve search placeholders to direct image links without downloading them.
-        const { questions: searchedQuestions, retainedImageUrls } = await processSerpApiImagesInQuestions(normalizedQuestions);
+        const { questions: searchedQuestions, retainedImageUrls } = await processSerpApiImagesInQuestions(
+            normalizedQuestions,
+            new Map(),
+            `${mapel} ${rombel} ${materi}`
+        );
         normalizedQuestions = await processImagesInQuestions(searchedQuestions, retainedImageUrls);
 
         // Filter out invalid questions
@@ -3076,7 +3140,7 @@ DILARANG memberikan kalimat pembuka atau penutup di luar tag HTML. DILARANG meng
 
         const serpImageCache = new Map();
         const retainedImageUrls = new Set();
-        text = await processSerpApiImagesInHtml(text, serpImageCache, retainedImageUrls);
+        text = await processSerpApiImagesInHtml(text, serpImageCache, retainedImageUrls, `${mapel} ${fase} ${topik}`);
 
         // PROCESS IMAGES: Migrate pollination.ai urls in HTML to Supabase
         try {
@@ -3109,7 +3173,11 @@ DILARANG memberikan kalimat pembuka atau penutup di luar tag HTML. DILARANG meng
                     parsedQuestions = parsedQuestions.map(q => fullNormalizeQuestion(q, mapel, fase));
 
                     // Resolve search placeholders to direct image links without downloading them.
-                    const processedQuestions = await processSerpApiImagesInQuestions(parsedQuestions, serpImageCache);
+                    const processedQuestions = await processSerpApiImagesInQuestions(
+                        parsedQuestions,
+                        serpImageCache,
+                        `${mapel} ${fase} ${topik}`
+                    );
                     parsedQuestions = await processImagesInQuestions(processedQuestions.questions, processedQuestions.retainedImageUrls);
 
                     addedCount = 0;
