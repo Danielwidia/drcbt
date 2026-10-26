@@ -2328,6 +2328,98 @@ async function callAI(prompt, teacherId = null) {
 /**
  * Save an external AI image to the local "images" folder
  */
+async function searchSerpApiImageUrl(query) {
+    const apiKey = process.env.SERPAPI_API_KEY;
+    if (!apiKey) {
+        throw new Error('SERPAPI_API_KEY belum dikonfigurasi untuk mencari gambar soal.');
+    }
+
+    const searchUrl = new URL('https://serpapi.com/search.json');
+    searchUrl.searchParams.set('engine', 'google_images');
+    searchUrl.searchParams.set('q', query);
+    searchUrl.searchParams.set('safe', 'active');
+    searchUrl.searchParams.set('api_key', apiKey);
+
+    const response = await fetch(searchUrl, { signal: AbortSignal.timeout(15000) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(`Pencarian gambar SerpAPI gagal (HTTP ${response.status})${data.error ? `: ${data.error}` : ''}`);
+    }
+
+    const imageUrl = Array.isArray(data.images_results)
+        ? data.images_results.map(result => result?.original).find(candidate => {
+            if (typeof candidate !== 'string') return false;
+            try {
+                return ['http:', 'https:'].includes(new URL(candidate).protocol);
+            } catch {
+                return false;
+            }
+        })
+        : null;
+
+    if (!imageUrl) {
+        throw new Error(`SerpAPI tidak menemukan URL gambar yang valid untuk pencarian "${query}".`);
+    }
+    return imageUrl;
+}
+
+async function resolveSerpApiImagePlaceholder(url, imageCache, retainedImageUrls) {
+    const prefix = 'https://ai-image.local/prompt/';
+    if (typeof url !== 'string' || !url.startsWith(prefix)) return url;
+
+    let query = url.slice(prefix.length);
+    try {
+        query = decodeURIComponent(query);
+    } catch {
+        query = query.replace(/\+/g, ' ');
+    }
+    query = query.trim();
+    if (!query) throw new Error('Deskripsi gambar untuk pencarian SerpAPI kosong.');
+
+    if (!imageCache.has(query)) {
+        imageCache.set(query, searchSerpApiImageUrl(query));
+    }
+    const imageUrl = await imageCache.get(query);
+    retainedImageUrls.add(imageUrl);
+    return imageUrl;
+}
+
+async function processSerpApiImagesInHtml(html, imageCache, retainedImageUrls) {
+    if (!html || typeof html !== 'string' || !html.includes('<img')) return html;
+
+    const imgRegex = /(<img\b[^>]*?\bsrc=["'])([^"']+)(["'][^>]*>)/gi;
+    const matches = [...html.matchAll(imgRegex)];
+    let processedHtml = html;
+    for (const match of matches) {
+        const imageUrl = await resolveSerpApiImagePlaceholder(match[2], imageCache, retainedImageUrls);
+        if (imageUrl !== match[2]) {
+            processedHtml = processedHtml.split(match[2]).join(imageUrl);
+        }
+    }
+    return processedHtml;
+}
+
+async function processSerpApiImagesInQuestions(questions, imageCache = new Map()) {
+    const retainedImageUrls = new Set();
+    if (!Array.isArray(questions)) return { questions, retainedImageUrls };
+
+    for (const question of questions) {
+        if (typeof question.image === 'string') {
+            question.image = await resolveSerpApiImagePlaceholder(question.image, imageCache, retainedImageUrls);
+        }
+        if (Array.isArray(question.images)) {
+            for (let index = 0; index < question.images.length; index++) {
+                question.images[index] = await resolveSerpApiImagePlaceholder(question.images[index], imageCache, retainedImageUrls);
+            }
+        }
+        if (typeof question.text === 'string') {
+            question.text = await processSerpApiImagesInHtml(question.text, imageCache, retainedImageUrls);
+        }
+    }
+
+    return { questions, retainedImageUrls };
+}
+
 async function saveAIImageLocally(url) {
     if (!url || typeof url !== 'string') return url;
 
@@ -2466,15 +2558,20 @@ async function saveAIImageLocally(url) {
 /**
  * Scan questions for external AI images and migrate them to Supabase
  */
-async function processImagesInQuestions(questions) {
+async function processImagesInQuestions(questions, retainedImageUrls = new Set()) {
     if (!Array.isArray(questions)) return questions;
+
+    const shouldSaveImage = url => (
+        typeof url === 'string'
+        && (url.includes('pollinations.ai') || url.includes('ai-image.local') || (url.startsWith('http') && !retainedImageUrls.has(url)))
+    );
 
     for (const q of questions) {
         // Ensure q.images is always an array
         if (!Array.isArray(q.images)) q.images = [];
 
         // Handle q.image (legacy singular)
-        if (q.image && typeof q.image === 'string' && (q.image.includes('pollinations.ai') || q.image.includes('ai-image.local') || q.image.startsWith('http'))) {
+        if (shouldSaveImage(q.image)) {
             const newPath = await saveAIImageLocally(q.image);
             q.image = newPath;
             if (!q.images.includes(newPath)) q.images.push(newPath);
@@ -2482,7 +2579,7 @@ async function processImagesInQuestions(questions) {
 
         // Handle q.images (array)
         for (let i = 0; i < q.images.length; i++) {
-            if (typeof q.images[i] === 'string' && (q.images[i].includes('pollinations.ai') || q.images[i].includes('ai-image.local') || q.images[i].startsWith('http'))) {
+            if (shouldSaveImage(q.images[i])) {
                 q.images[i] = await saveAIImageLocally(q.images[i]);
             }
         }
@@ -2495,7 +2592,7 @@ async function processImagesInQuestions(questions) {
             const urlsToReplace = [];
             while ((match = imgRegex.exec(q.text)) !== null) {
                 const url = match[1];
-                if (url.includes('pollinations.ai') || url.includes('ai-image.local') || url.startsWith('http')) {
+                if (shouldSaveImage(url)) {
                     if (!urlsToReplace.includes(url)) urlsToReplace.push(url);
                 }
             }
@@ -2608,13 +2705,9 @@ app.post('/api/generate-ai', async (req, res) => {
     }
 
     if (opsiGambar === 'auto') {
-        prompt += `\nUNTUK SETIAP SOAL (WAJIB ADA), sertakan ilustrasi gambar otomatis menggunakan tag HTML berikut HANYA di dalam field "text": <br><img src="https://ai-image.local/prompt/[VISUAL_DESCRIPTION]" alt="Ilustrasi AI" style="border-radius: 8px; margin: 15px 0; max-width: 100%;"><br>\nGantikan [VISUAL_DESCRIPTION] dengan deskripsi visual yang sangat detail DALAM BAHASA INGGRIS yang merangkum maksud soal tersebut. 
-        Sertakan JUGA URL gambar yang sama ke dalam array "images" di root object JSON untuk soal tersebut. 
-        SANGAT PENTING: 
-        1. Gunakan gaya "flat vector educational illustration, clean lines, white background". 
-        2. Pastikan anatomi manusia benar (HANYA 2 tangan, 2 kaki, 5 jari). HINDARI distorsi limb atau penambahan anggota tubuh yang tidak perlu.
-        3. Deskripsi harus fokus pada akurasi teknis bukan artistik. 
-        Contoh: "A professional flat vector illustration of a student sitting properly at a desk, simple clean lines, 2 hands visible, educational style, white background". `;
+        prompt += `\nUNTUK SETIAP SOAL (WAJIB ADA), sertakan tag HTML berikut HANYA di dalam field "text": <br><img src="https://ai-image.local/prompt/[IMAGE_SEARCH_QUERY]" alt="Ilustrasi soal" style="border-radius: 8px; margin: 15px 0; max-width: 100%;"><br>
+        Ganti [IMAGE_SEARCH_QUERY] dengan kata kunci objek/diagram yang singkat dan relevan dalam bahasa Indonesia atau Inggris. Gunakan URL placeholder yang sama di array "images" pada root object JSON. Server akan mencari gambar melalui SerpAPI dan mengganti placeholder dengan URL gambar hasil pencarian.
+        SANGAT PENTING: Pilih gambar yang benar-benar membantu menjawab atau memahami soal. Jangan membuat gambar baru. `;
     } else if (opsiGambar === 'placeholder') {
         prompt += `\nUNTUK SETIAP SOAL (WAJIB ADA), sertakan placeholder HTML berikut di field "text": <div style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 20px; text-align: center; background-color: #f8fafc; margin: 15px 0;"><p style="font-weight: bold; color: #475569; margin: 0;">[Area Ilustrasi: DESKRIPSI_GAMBAR]</p></div>. Ganti DESKRIPSI_GAMBAR dengan nama objek gambar yang relevan. `;
     }
@@ -2702,8 +2795,9 @@ app.post('/api/generate-ai', async (req, res) => {
         // Normalize question formats
         let normalizedQuestions = parsed.map(q => fullNormalizeQuestion(q, mapel, rombel));
 
-        // PROCESS IMAGES: Migrate pollination.ai urls to Supabase
-        normalizedQuestions = await processImagesInQuestions(normalizedQuestions);
+        // Resolve search placeholders to direct image links without downloading them.
+        const { questions: searchedQuestions, retainedImageUrls } = await processSerpApiImagesInQuestions(normalizedQuestions);
+        normalizedQuestions = await processImagesInQuestions(searchedQuestions, retainedImageUrls);
 
         // Filter out invalid questions
         const originalCount = normalizedQuestions.length;
@@ -2840,11 +2934,7 @@ Pastikan setiap bagian jelas, terukur, dan sesuai dengan standar Kurikulum Merde
         if (extraData?.opsiGambar === 'placeholder') {
             promptText += `\nUntuk soal yang memerlukan ilustrasi gambar, JANGAN gunakan placeholder gambar biasa. Gunakan blok HTML berikut sebagai "Area Ilustrasi" agar terlihat profesional:\n<div style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 20px; text-align: center; background-color: #f8fafc; margin: 15px 0;"><i class="fas fa-image" style="font-size: 32px; color: #94a3b8; margin-bottom: 10px; display: block;"></i><p style="font-weight: bold; color: #475569; margin: 0; font-size: 14px;">[Area Ilustrasi: DESKRIPSI_GAMBAR]</p><p style="font-size: 11px; color: #94a3b8; margin-top: 5px;">(Guru dapat menyisipkan gambar spesifik di sini)</p></div>\nGanti teks DESKRIPSI_GAMBAR dengan nama/objek gambar yang relevan (misal: "Struktur Akar Tumbuhan").`;
         } else if (extraData?.opsiGambar === 'auto') {
-            promptText += `\nUNTUK SETIAP SOAL (WAJIB ADA), tampilkan gambar asli secara otomatis menggunakan tag HTML ini: <br><img src="https://ai-image.local/prompt/[VISUAL_DESCRIPTION]" alt="Ilustrasi AI" style="border-radius: 8px; margin: 15px 0; max-width: 100%; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); border: 1px solid #e2e8f0;">\nGantikan [VISUAL_DESCRIPTION] dengan deskripsi visual yang sangat detail DALAM BAHASA INGGRIS yang merangkum maksud soal tersebut. 
-            INSTRUKSI KETAT:
-            1. Gaya harus "clean educational 2D vector graphic, minimalist style, white background".
-            2. WAJIB menjaga anatomi manusia tetap normal (2 lengan, 2 kaki, proporsional). JANGAN membuat pose yang terlalu kompleks yang bisa menyebabkan distorsi AI.
-            3. Tambahkan keyword "high quality, simple, clear labels if needed" dalam deskripsi tersebut.`;
+            promptText += `\nUNTUK SETIAP SOAL BERGAMBAR (WAJIB ADA), gunakan kata kunci objek/diagram yang singkat dan relevan dalam bahasa Indonesia atau Inggris pada placeholder berikut: <br><img src="https://ai-image.local/prompt/[IMAGE_SEARCH_QUERY]" alt="Ilustrasi soal" style="border-radius: 8px; margin: 15px 0; max-width: 100%; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); border: 1px solid #e2e8f0;">\nGunakan URL placeholder yang sama di array "images" pada JSON bank soal. Server akan mencari gambar melalui SerpAPI dan mengganti placeholder dengan URL hasil pencarian. Jangan membuat gambar baru.`;
         }
 
         // ── Soal Cerita ──────────────────────────────────────────────────────
@@ -2984,6 +3074,10 @@ DILARANG memberikan kalimat pembuka atau penutup di luar tag HTML. DILARANG meng
         // Membersihkan markdown wrapper (```html ... ```)
         text = text.replace(/```html\n?/g, '').replace(/```\n?/g, '').trim();
 
+        const serpImageCache = new Map();
+        const retainedImageUrls = new Set();
+        text = await processSerpApiImagesInHtml(text, serpImageCache, retainedImageUrls);
+
         // PROCESS IMAGES: Migrate pollination.ai urls in HTML to Supabase
         try {
             text = await processImagesInHtml(text);
@@ -3014,8 +3108,9 @@ DILARANG memberikan kalimat pembuka atau penutup di luar tag HTML. DILARANG meng
                     // Inject basic standard properties and full normalization
                     parsedQuestions = parsedQuestions.map(q => fullNormalizeQuestion(q, mapel, fase));
 
-                    // PROCESS IMAGES: Migrate pollination.ai urls in Bank Soal questions to Supabase
-                    parsedQuestions = await processImagesInQuestions(parsedQuestions);
+                    // Resolve search placeholders to direct image links without downloading them.
+                    const processedQuestions = await processSerpApiImagesInQuestions(parsedQuestions, serpImageCache);
+                    parsedQuestions = await processImagesInQuestions(processedQuestions.questions, processedQuestions.retainedImageUrls);
 
                     addedCount = 0;
                     if (parsedQuestions && parsedQuestions.length > 0) {
