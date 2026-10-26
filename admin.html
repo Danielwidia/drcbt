@@ -21,6 +21,7 @@
     <script src="js/core/db-sync.js"></script>
     <script src="js/core/ui-helpers.js"></script>
     <script src="js/utils/formatters.js"></script>
+    <script src="js/modules/siswa.js"></script>
     <script src="js/modules/admin.js"></script>
     <script src="js/modules/guru.js"></script>
     <script src="js/modules/quizz.js"></script>
@@ -1891,8 +1892,12 @@
                             class="w-full px-5 py-3 bg-slate-50 rounded-2xl outline-none ring-1 ring-slate-100 focus:ring-2 focus:ring-rose-500 font-bold">
                             <option value="none">Tanpa Gambar</option>
                             <option value="placeholder">Buat Area Ilustrasi Kosong</option>
-                            <option value="auto">Generate Gambar AI Otomatis</option>
+                            <option value="auto">Cari Gambar Otomatis (SerpAPI)</option>
                         </select>
+                        <label for="ai-jumlah-gambar" class="block mt-3 text-xs font-semibold text-slate-600">Jumlah soal yang memakai gambar</label>
+                        <input type="number" id="ai-jumlah-gambar" min="0" value="2"
+                            class="mt-1 w-full px-4 py-2 bg-slate-50 rounded-xl outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-rose-500 text-sm">
+                        <p class="mt-1 text-[10px] text-slate-400">Hanya digunakan saat pencarian gambar otomatis aktif.</p>
                     </div>
                 </div>
 

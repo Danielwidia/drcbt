@@ -2430,13 +2430,23 @@ async function resolveSerpApiImagePlaceholder(url, imageCache, retainedImageUrls
     return imageUrl;
 }
 
-async function processSerpApiImagesInHtml(html, imageCache, retainedImageUrls, subjectContext = '') {
+async function processSerpApiImagesInHtml(html, imageCache, retainedImageUrls, subjectContext = '', maxImageCount = Infinity, imageUsage = { count: 0 }) {
     if (!html || typeof html !== 'string' || !html.includes('<img')) return html;
 
     const imgRegex = /(<img\b[^>]*?\bsrc=["'])([^"']+)(["'][^>]*>)/gi;
     const matches = [...html.matchAll(imgRegex)];
     let processedHtml = html;
     for (const match of matches) {
+        const scriptStart = html.lastIndexOf('<script', match.index);
+        const scriptEnd = html.lastIndexOf('</script>', match.index);
+        if (scriptStart > scriptEnd) continue;
+
+        if (!match[2].startsWith('https://ai-image.local/prompt/')) continue;
+        if (imageUsage.count >= maxImageCount) {
+            processedHtml = processedHtml.replace(match[0], '');
+            continue;
+        }
+
         const nearbyContext = html.slice(Math.max(0, match.index - 300), match.index + match[0].length + 300);
         const imageUrl = await resolveSerpApiImagePlaceholder(
             match[2],
@@ -2447,16 +2457,43 @@ async function processSerpApiImagesInHtml(html, imageCache, retainedImageUrls, s
         );
         if (imageUrl !== match[2]) {
             processedHtml = processedHtml.split(match[2]).join(imageUrl);
+            imageUsage.count++;
         }
     }
+    processedHtml = processedHtml.replace(
+        /<script\b[^>]*>[\s\S]*?<\/script>/gi,
+        script => script.replace(/<img\b[^>]*\bsrc=["']https:\/\/ai-image\.local\/prompt\/[^"']+["'][^>]*>/gi, '')
+    );
+    processedHtml = processedHtml.replace(/<img\b[^>]*\bsrc=["']https:\/\/ai-image\.local\/prompt\/[^"']+["'][^>]*>/gi, '');
     return processedHtml;
 }
 
-async function processSerpApiImagesInQuestions(questions, imageCache = new Map(), subjectContext = '') {
+async function processSerpApiImagesInQuestions(questions, imageCache = new Map(), subjectContext = '', maxImageQuestions = Infinity) {
     const retainedImageUrls = new Set();
     if (!Array.isArray(questions)) return { questions, retainedImageUrls };
+    let imageQuestionCount = 0;
+    const placeholderPrefix = 'https://ai-image.local/prompt/';
 
     for (const question of questions) {
+        const hasImagePlaceholder = (
+            (typeof question.image === 'string' && question.image.startsWith(placeholderPrefix))
+            || (Array.isArray(question.images) && question.images.some(image => typeof image === 'string' && image.startsWith(placeholderPrefix)))
+            || (typeof question.text === 'string' && /<img\b[^>]*\bsrc=["']https:\/\/ai-image\.local\/prompt\//i.test(question.text))
+        );
+        if (!hasImagePlaceholder) continue;
+
+        if (imageQuestionCount >= maxImageQuestions) {
+            if (typeof question.image === 'string' && question.image.startsWith(placeholderPrefix)) delete question.image;
+            if (Array.isArray(question.images)) {
+                question.images = question.images.filter(image => typeof image !== 'string' || !image.startsWith(placeholderPrefix));
+            }
+            if (typeof question.text === 'string') {
+                question.text = question.text.replace(/<img\b[^>]*\bsrc=["']https:\/\/ai-image\.local\/prompt\/[^"']+["'][^>]*>/gi, '');
+            }
+            continue;
+        }
+
+        imageQuestionCount++;
         const questionContext = getImageSearchContextText([
             question.text,
             question.options,
@@ -2709,6 +2746,7 @@ app.post('/api/generate-ai', async (req, res) => {
         typeCounts = {},
         levelCounts = {},
         opsiGambar = 'none',
+        jumlahSoalBergambar,
         teacherId = null
     } = req.body;
 
@@ -2724,6 +2762,10 @@ app.post('/api/generate-ai', async (req, res) => {
 
     const totalFromCounts = Object.values(normalizedCounts).reduce((sum, value) => sum + value, 0);
     const actualJumlah = totalFromCounts > 0 ? totalFromCounts : Number(jumlah) || 5;
+    const requestedImageCount = Number.parseInt(jumlahSoalBergambar, 10);
+    const imageQuestionCount = opsiGambar === 'auto'
+        ? Math.min(actualJumlah, Math.max(0, Number.isFinite(requestedImageCount) ? requestedImageCount : Math.min(2, actualJumlah)))
+        : 0;
 
     const typeLabels = {
         single: 'pilihan ganda',
@@ -2765,7 +2807,7 @@ app.post('/api/generate-ai', async (req, res) => {
     }
 
     if (opsiGambar === 'auto') {
-        prompt += `\nUNTUK SETIAP SOAL (WAJIB ADA), sertakan tag HTML berikut HANYA di dalam field "text": <br><img src="https://ai-image.local/prompt/[IMAGE_SEARCH_QUERY]" alt="Ilustrasi soal" style="border-radius: 8px; margin: 15px 0; max-width: 100%;"><br>
+        prompt += `\nTEPAT ${imageQuestionCount} dari ${actualJumlah} soal harus memakai gambar, bukan semua soal. Sebarkan gambar pada soal yang paling terbantu oleh ilustrasi (misalnya soal yang membahas objek, proses, lokasi, bentuk, atau diagram). Soal lainnya tidak boleh memiliki gambar. Untuk setiap soal bergambar, sertakan tag HTML berikut HANYA di dalam field "text": <br><img src="https://ai-image.local/prompt/[IMAGE_SEARCH_QUERY]" alt="Ilustrasi soal" style="border-radius: 8px; margin: 15px 0; max-width: 100%;"><br>
         Ganti [IMAGE_SEARCH_QUERY] dengan kata kunci objek/diagram yang singkat dan relevan dalam bahasa Indonesia atau Inggris. Gunakan URL placeholder yang sama di array "images" pada root object JSON. Server akan mencari gambar melalui SerpAPI dan mengganti placeholder dengan URL gambar hasil pencarian.
         SANGAT PENTING: Pilih gambar yang benar-benar membantu menjawab atau memahami soal. Jangan membuat gambar baru. `;
     } else if (opsiGambar === 'placeholder') {
@@ -2859,7 +2901,8 @@ app.post('/api/generate-ai', async (req, res) => {
         const { questions: searchedQuestions, retainedImageUrls } = await processSerpApiImagesInQuestions(
             normalizedQuestions,
             new Map(),
-            `${mapel} ${rombel} ${materi}`
+            `${mapel} ${rombel} ${materi}`,
+            imageQuestionCount
         );
         normalizedQuestions = await processImagesInQuestions(searchedQuestions, retainedImageUrls);
 
@@ -2998,7 +3041,7 @@ Pastikan setiap bagian jelas, terukur, dan sesuai dengan standar Kurikulum Merde
         if (extraData?.opsiGambar === 'placeholder') {
             promptText += `\nUntuk soal yang memerlukan ilustrasi gambar, JANGAN gunakan placeholder gambar biasa. Gunakan blok HTML berikut sebagai "Area Ilustrasi" agar terlihat profesional:\n<div style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 20px; text-align: center; background-color: #f8fafc; margin: 15px 0;"><i class="fas fa-image" style="font-size: 32px; color: #94a3b8; margin-bottom: 10px; display: block;"></i><p style="font-weight: bold; color: #475569; margin: 0; font-size: 14px;">[Area Ilustrasi: DESKRIPSI_GAMBAR]</p><p style="font-size: 11px; color: #94a3b8; margin-top: 5px;">(Guru dapat menyisipkan gambar spesifik di sini)</p></div>\nGanti teks DESKRIPSI_GAMBAR dengan nama/objek gambar yang relevan (misal: "Struktur Akar Tumbuhan").`;
         } else if (extraData?.opsiGambar === 'auto') {
-            promptText += `\nUNTUK SETIAP SOAL BERGAMBAR (WAJIB ADA), gunakan kata kunci objek/diagram yang singkat dan relevan dalam bahasa Indonesia atau Inggris pada placeholder berikut: <br><img src="https://ai-image.local/prompt/[IMAGE_SEARCH_QUERY]" alt="Ilustrasi soal" style="border-radius: 8px; margin: 15px 0; max-width: 100%; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); border: 1px solid #e2e8f0;">\nGunakan URL placeholder yang sama di array "images" pada JSON bank soal. Server akan mencari gambar melalui SerpAPI dan mengganti placeholder dengan URL hasil pencarian. Jangan membuat gambar baru.`;
+            promptText += `\nTEPAT ${extraData.jumlahSoalBergambar || 0} dari ${extraData.jumlahSoalTotal || extraData.jumlahPerBentuk || 'jumlah soal'} soal harus memakai gambar, bukan semua soal. Tempatkan gambar hanya pada soal yang paling terbantu oleh ilustrasi; soal lainnya jangan diberi gambar. Untuk tiap soal bergambar, gunakan kata kunci objek/diagram singkat dan relevan pada placeholder berikut: <br><img src="https://ai-image.local/prompt/[IMAGE_SEARCH_QUERY]" alt="Ilustrasi soal" style="border-radius: 8px; margin: 15px 0; max-width: 100%; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); border: 1px solid #e2e8f0;">\nGunakan URL placeholder yang sama di array "images" pada JSON bank soal. Server akan mencari gambar melalui SerpAPI dan mengganti placeholder dengan URL hasil pencarian. Jangan membuat gambar baru.`;
         }
 
         // ── Soal Cerita ──────────────────────────────────────────────────────
@@ -3140,7 +3183,23 @@ DILARANG memberikan kalimat pembuka atau penutup di luar tag HTML. DILARANG meng
 
         const serpImageCache = new Map();
         const retainedImageUrls = new Set();
-        text = await processSerpApiImagesInHtml(text, serpImageCache, retainedImageUrls, `${mapel} ${fase} ${topik}`);
+        const totalFromAdminForm = Number.parseInt(extraData.jumlahSoalTotal, 10)
+            || Number.parseInt(String(extraData.jumlahPerBentuk || '').match(/\d+/)?.[0], 10)
+            || 5;
+        const totalAdminQuestions = Math.max(0, totalFromAdminForm);
+        const requestedAdminImageCount = Number.parseInt(extraData.jumlahSoalBergambar, 10);
+        const adminImageQuestionCount = extraData.opsiGambar === 'auto'
+            ? Math.min(totalAdminQuestions, Math.max(0, Number.isFinite(requestedAdminImageCount) ? requestedAdminImageCount : Math.min(2, totalAdminQuestions)))
+            : 0;
+        const imageUsage = { count: 0 };
+        text = await processSerpApiImagesInHtml(
+            text,
+            serpImageCache,
+            retainedImageUrls,
+            `${mapel} ${fase} ${topik}`,
+            adminImageQuestionCount,
+            imageUsage
+        );
 
         // PROCESS IMAGES: Migrate pollination.ai urls in HTML to Supabase
         try {
@@ -3176,8 +3235,10 @@ DILARANG memberikan kalimat pembuka atau penutup di luar tag HTML. DILARANG meng
                     const processedQuestions = await processSerpApiImagesInQuestions(
                         parsedQuestions,
                         serpImageCache,
-                        `${mapel} ${fase} ${topik}`
+                        `${mapel} ${fase} ${topik}`,
+                        Math.max(0, adminImageQuestionCount - imageUsage.count)
                     );
+                    retainedImageUrls.forEach(url => processedQuestions.retainedImageUrls.add(url));
                     parsedQuestions = await processImagesInQuestions(processedQuestions.questions, processedQuestions.retainedImageUrls);
 
                     addedCount = 0;
