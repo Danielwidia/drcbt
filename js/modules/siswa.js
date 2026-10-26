@@ -1830,6 +1830,9 @@ async function generateQuestionsWithAi() {
 
     const levelCounts = getAiLevelCounts(jumlah);
     const opsiGambar = document.getElementById('ai-opsi-gambar')?.value || 'none';
+    const jumlahSoalBergambar = opsiGambar === 'auto'
+        ? Math.min(jumlah, Math.max(0, Number.parseInt(document.getElementById('ai-jumlah-gambar')?.value, 10) || 0))
+        : 0;
     const loading = document.getElementById('ai-loading');
     if (loading) {
         loading.classList.remove('hidden');
@@ -1841,7 +1844,7 @@ async function generateQuestionsWithAi() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                materi, jumlah, tipe, mapel, rombel, typeCounts, levelCounts, opsiGambar,
+                materi, jumlah, tipe, mapel, rombel, typeCounts, levelCounts, opsiGambar, jumlahSoalBergambar,
                 teacherId: (currentSiswa && currentSiswa.role === 'teacher') ? currentSiswa.id : null
             })
         });
@@ -2307,6 +2310,5 @@ async function processAdminCommandsOnStudent(liveExams) {
     }
 }
 window.processAdminCommandsOnStudent = processAdminCommandsOnStudent;
-
 
 
